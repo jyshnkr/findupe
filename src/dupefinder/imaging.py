@@ -105,7 +105,9 @@ def _perceptual_worker(path_str: str) -> dict:
             "dhash": int(str(imagehash.dhash(img)), 16),
             "width": img.width,
             "height": img.height,
-            "capture_key": capture_key(img) if path.suffix.lower() in RAW_EXTS else None,
+            # for every image, not just RAW: a capture-time conflict can demote
+            # any suspicious match to the review-only tier
+            "capture_key": capture_key(img),
         }
     except Exception as e:  # decode failures are per-file findings, never fatal
         return {"path": path_str, "error": f"{type(e).__name__}: {e}"}
