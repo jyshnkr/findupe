@@ -32,12 +32,24 @@ def png_bytes(color: tuple[int, int, int], size: tuple[int, int] = (64, 64)) -> 
 
 
 def gradient_image(size: tuple[int, int] = (256, 256)) -> Image.Image:
-    """Deterministic non-uniform image so perceptual hashes are meaningful."""
+    """Deterministic photo-like image: gradient plus high-contrast shapes.
+
+    A bare gradient is pathological for perceptual hashing (dHash saturates on a
+    monotone ramp, JPEG shifts pHash bits) — real photos have structure, so this
+    fixture must too.
+    """
+    from PIL import ImageDraw
+
     img = Image.new("RGB", size)
     px = img.load()
     for x in range(size[0]):
         for y in range(size[1]):
             px[x, y] = (x % 256, y % 256, (x * y) % 256)
+    draw = ImageDraw.Draw(img)
+    w, h = size
+    draw.ellipse((w * 0.1, h * 0.1, w * 0.5, h * 0.6), fill=(240, 240, 240))
+    draw.rectangle((w * 0.6, h * 0.5, w * 0.95, h * 0.9), fill=(10, 10, 10))
+    draw.polygon([(w * 0.5, h * 0.8), (w * 0.7, h * 0.2), (w * 0.9, h * 0.7)], fill=(200, 30, 30))
     return img
 
 
