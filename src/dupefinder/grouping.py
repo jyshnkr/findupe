@@ -108,13 +108,17 @@ def _edge_tier(a: FileRecord, b: FileRecord) -> str | None:
     if strong:
         a_raw = a.path.suffix.lower() in RAW_EXTS
         b_raw = b.path.suffix.lower() in RAW_EXTS
-        if a.capture_subsec and b.capture_subsec and a.capture_subsec != b.capture_subsec:
+        if a_raw and b_raw:
+            # RAW↔RAW is NEVER perceptually strong: every real-world RAW duplicate
+            # is a byte-identical copy (exact tier); previews lack SubSec, and
+            # exFAT card timestamps make same-second burst frames share mtime —
+            # measured on real files. Bursts land here; humans review them.
+            strong = False
+        elif a.capture_subsec and b.capture_subsec and a.capture_subsec != b.capture_subsec:
             strong = False  # burst frames within the same second
         elif a_raw or b_raw:
             if not (a.capture_key and b.capture_key and a.capture_key == b.capture_key):
                 strong = False
-            elif a_raw and b_raw and a.mtime_ns != b.mtime_ns:
-                strong = False  # RAW previews lack SubSec; distinct write times = distinct frames
         elif a.capture_key and b.capture_key and a.capture_key != b.capture_key:
             strong = False
 

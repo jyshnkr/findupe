@@ -30,12 +30,21 @@ a re-imported CR3) become deletion candidates.
 | Possible | pHash 3–8 | Review-only — no checkboxes, the tool will not touch these |
 
 Thresholds were calibrated on real files: a HEIC→JPEG export measures distance **0**
-(even resized); consecutive burst frames measure ~**4** (they land in *possible*, for
-your eyes only); different photos measure ≥ 28.
+(even resized); different photos measure ≥ 28. Burst frames are the treacherous case —
+static-scene frames shot in the same second can hash **identically** — so three extra
+guards demote them to review-only, verified against a real 6,177-photo library:
 
-RAW files are fingerprinted via their embedded JPEG preview (rawpy; exiftool fallback)
-and additionally guarded by capture metadata (time + exposure): two different captures
-can never form a strong match, no matter how similar their previews.
+- capture metadata (time + exposure) must match for any strong match to form;
+- **SubSecTimeOriginal** must match too — it differs between burst frames shot within
+  the same second (`'75'` vs `'97'` on consecutive EOS R6 II frames);
+- **RAW↔RAW pairs are never perceptually strong.** Every real-world RAW duplicate is a
+  byte-identical copy (nobody re-encodes a CR3), so RAW deletion candidates come only
+  from the exact tier — burst frames whose previews collide land in review-only.
+
+RAW files are fingerprinted via their embedded JPEG preview (rawpy; exiftool fallback).
+And "surplus" is computed only within *directly-matched* same-format clusters — a file
+that merely shares a family through a chain of cross-format links renders as an
+informational "sibling", never as a deletion candidate.
 
 ## Safety model
 

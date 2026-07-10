@@ -82,19 +82,20 @@ def test_same_subsec_reencode_stays_strong():
     assert len(families) == 1 and families[0].surplus_count == 1
 
 
-def test_raw_pair_distinct_mtime_demoted():
-    """RAW previews lack SubSec; distinct write times = distinct frames."""
-    a = mk("/p/A.CR3", phash=PH, dhash=PH, capture_key="t|1", mtime=1_000)
-    b = mk("/p/B.CR3", phash=PH, dhash=PH, capture_key="t|1", mtime=2_000)
+def test_raw_raw_never_perceptually_strong():
+    """Real-data regression (JSCL0047/0048): same-second burst CR3s can share
+    capture key AND mtime (exFAT card timestamps) at pHash distance 2. RAW↔RAW
+    must never be strong — real RAW copies are byte-identical (exact tier)."""
+    a = mk("/p/A.CR3", phash=PH, dhash=PH, capture_key="t|1", mtime=5_000)
+    b = mk("/p/B.CR3", phash=PH, dhash=PH, capture_key="t|1", mtime=5_000)
     families, possible = build_families([a, b], {})
     assert families == [] and len(possible) == 1
 
 
-def test_raw_pair_same_mtime_same_key_is_strong():
-    """A Finder re-import preserves mtime — that's a real copy."""
-    a = mk("/p/A.CR3", phash=PH, dhash=PH, capture_key="t|1", mtime=5_000)
-    b = mk("/p/copy/A.CR3", phash=PH, dhash=PH, capture_key="t|1", mtime=5_000)
-    families, _ = build_families([a, b], {})
+def test_byte_identical_raw_copies_are_surplus_via_exact_tier():
+    a = mk("/p/A.CR3", phash=PH, dhash=PH, capture_key="t|1", exact_hash="h7")
+    b = mk("/p/reimport/A.CR3", phash=PH, dhash=PH, capture_key="t|1", exact_hash="h7")
+    families, _ = build_families([a, b], {"h7": [a, b]})
     assert len(families) == 1 and families[0].surplus_count == 1
 
 

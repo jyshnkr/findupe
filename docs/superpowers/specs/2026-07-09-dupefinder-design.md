@@ -121,3 +121,45 @@ APFS clone detection via extent inspection; OCR-based screenshot discrimination;
 ## Karpathy-guidelines review — addressed
 
 Reviewed against the four guidelines (Think Before Coding / Simplicity First / Surgical Changes / Goal-Driven Execution): assumptions now stated explicitly (section above); speculative features cut (config file, extra cache/status commands, fallback trasher, PyObjC — dependency count 6 → 5); every phase given a concrete verify criterion. Surgical-changes rule maps to the tool's own guarantee: it never modifies anything outside the reviewed selection.
+
+---
+
+## Addendum (2026-07-09, post-implementation): real-data verification findings
+
+A full scan of the user's real library (`~/Documents/DCIMZ_2`: 6,177 files, 86 GB,
+3,810 JPG + 2,365 CR3 from an EOS R6 II) exposed a false-positive path the design
+review had predicted but underestimated: **static-scene burst frames shot within the
+same second hash at pHash distance 0** and carried identical capture keys (1-second
+granularity), so consecutive captures like JSCL0048/JSCL0049 were pre-checked as
+surplus. Fixes, verified by measurement on those files:
+
+1. `SubSecTimeOriginal` (EXIF 0x9291) joins the capture key — it differed ('75' vs
+   '97') between the false-positive frames while surviving format conversion.
+2. RAW↔RAW strong edges additionally require identical `mtime_ns` (RAW previews lack
+   SubSec; burst frames get distinct write times, re-imports preserve them).
+3. Surplus is computed only within **direct-edge same-format clusters** (exact hash
+   equality or a recorded strong pair) — never through transitive family membership.
+   Non-clustered partition members render as informational "sibling" rows.
+
+A 20-agent adversarial review workflow (5 dimensions × verify pass) confirmed 12
+further defects, all fixed: companions became first-class verified entries
+(size+hash through selection → apply → manifest → hash-matched undo, deduplicated
+across primaries, modified companions left in place); dhash-None crash guard;
+"Check all suggested" excludes flagged families; keeper-map JS export; exact-NFC
+path dedup (casefold dropped genuinely distinct files on case-sensitive volumes);
+cache keyed by volume UUID (schema v2, guards against drive-swap poisoning);
+partial-hash failures fall through to full hashing; malformed selection JSON fails
+loudly. Test count: 82.
+
+Second real-data iteration: the mtime guard proved insufficient — exFAT card
+timestamps give same-second burst frames IDENTICAL mtimes (JSCL0047/0048 measured
+equal to the nanosecond), and their previews sit at pHash distance 2. Final rule:
+**RAW↔RAW pairs are never perceptually strong** — real RAW duplicates are
+byte-identical (exact tier); perceptual RAW matches only join families or surface
+as review-only. Also measured: same-capture CR3-preview↔in-camera-JPG distance is
+pHash 8 (picture-style/lens-correction differences), so camera pairs appear in the
+possible tier rather than as strong families — conservative and correct, since
+cross-format siblings are never deletable anyway. Final real-data result on
+DCIMZ_2: 0 duplicate families (ground truth: no byte-identical files existed),
+503 near-matches deferred to review — versus the pre-fix scan's 1,547 surplus
+files (25 GB), which were 100% false positives.
