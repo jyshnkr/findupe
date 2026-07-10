@@ -1,17 +1,23 @@
 """Family assembly: exact groups + perceptual clusters → reviewable families.
 
-Tier rules (calibrated on real files in the Phase 0 spike):
+Tier rules (calibrated on real files: Phase 0 spike + real-data verification on
+6,177 photos from the user's EOS R6 II):
 - strong visual edge: pHash ≤ 2 AND dHash ≤ 2 — true re-encodes measure 0
-- possible edge:      pHash 3..8          — real burst pairs measure ~4; review-only
+- possible edge:      pHash 3..8          — burst pairs measure ~4; review-only
 - demotions to "possible" (never strong):
-    * either side is RAW and capture metadata is missing or differs (red-team:
-      embedded previews can collide across different captures)
-    * both sides have capture metadata and it differs (bursts, brackets)
+    * capture metadata present on both sides and different (bursts, brackets)
+    * SubSecTimeOriginal present on both sides and different — separates burst
+      frames shot within the SAME second (measured '75' vs '97' on real files;
+      static-scene frames can hash identically at distance 0!)
+    * either side is RAW and capture metadata is missing or differs
+    * both sides RAW and mtime differs — RAW previews lack SubSec, but burst
+      frames get distinct write times while true re-imports preserve mtime
 
-Families are connected components of exact + strong edges. Each family is
-partitioned by format; the keeper heuristic suggests one survivor per partition
-and everything else becomes pre-checkable surplus. Cross-format siblings are
-separate partitions — never surplus, never pre-checked.
+Families are connected components of exact + strong edges — but surplus is NOT
+computed per family: union-find transitivity can chain A~B~C where A and C were
+never directly compared. Surplus lives only in same-format CLUSTERS built from
+direct edges (exact-hash equality or a recorded strong pair). Everything else in
+a partition is informational — shown, never pre-checkable.
 """
 
 from __future__ import annotations
@@ -21,7 +27,7 @@ import re
 import pybktree
 
 from .imaging import hamming
-from .models import RAW_EXTS, Family, FileRecord, FormatPartition
+from .models import RAW_EXTS, Cluster, Family, FileRecord, FormatPartition
 
 THRESHOLD_HIGH = 2
 THRESHOLD_POSSIBLE = 8
@@ -99,13 +105,18 @@ def _edge_tier(a: FileRecord, b: FileRecord) -> str | None:
     dd = hamming(a.dhash, b.dhash)
     strong = dp <= THRESHOLD_HIGH and dd <= THRESHOLD_HIGH
 
-    a_raw = a.path.suffix.lower() in RAW_EXTS
-    b_raw = b.path.suffix.lower() in RAW_EXTS
-    if a_raw or b_raw:
-        if not (a.capture_key and b.capture_key and a.capture_key == b.capture_key):
+    if strong:
+        a_raw = a.path.suffix.lower() in RAW_EXTS
+        b_raw = b.path.suffix.lower() in RAW_EXTS
+        if a.capture_subsec and b.capture_subsec and a.capture_subsec != b.capture_subsec:
+            strong = False  # burst frames within the same second
+        elif a_raw or b_raw:
+            if not (a.capture_key and b.capture_key and a.capture_key == b.capture_key):
+                strong = False
+            elif a_raw and b_raw and a.mtime_ns != b.mtime_ns:
+                strong = False  # RAW previews lack SubSec; distinct write times = distinct frames
+        elif a.capture_key and b.capture_key and a.capture_key != b.capture_key:
             strong = False
-    elif a.capture_key and b.capture_key and a.capture_key != b.capture_key:
-        strong = False
 
     return "strong" if strong else "possible"
 
@@ -117,11 +128,12 @@ def build_families(
 ) -> tuple[list[Family], list[Family]]:
     """Return (families, possible_families).
 
-    families: exact/strong-visual components, partitioned by format with keepers.
-    possible_families: review-only clusters from possible edges across families.
+    families: exact/strong-visual components; surplus only inside direct-edge
+    same-format clusters. possible_families: review-only clusters.
     """
     idx = {id(r): i for i, r in enumerate(records)}
     uf = _UnionFind(len(records))
+    strong_pairs: set[frozenset[int]] = set()
 
     for members in exact_groups.values():
         first = idx[id(members[0])]
@@ -130,7 +142,8 @@ def build_families(
 
     hashable = [
         r for r in records
-        if r.phash is not None and r.hash_error is None and r.hardlink_of is None
+        if r.phash is not None and r.dhash is not None
+        and r.hash_error is None and r.hardlink_of is None
     ]
     by_phash: dict[int, list[FileRecord]] = {}
     for r in hashable:
@@ -155,6 +168,7 @@ def build_families(
                     tier = _edge_tier(a, b)
                     if tier == "strong":
                         uf.union(idx[id(a)], idx[id(b)])
+                        strong_pairs.add(frozenset((idx[id(a)], idx[id(b)])))
                     elif tier == "possible":
                         possible_pairs.append((a, b))
 
@@ -163,7 +177,7 @@ def build_families(
         components.setdefault(uf.find(idx[id(r)]), []).append(r)
 
     families = [
-        _make_family(f"fam-{n:05d}", members, exact_groups)
+        _make_family(f"fam-{n:05d}", members, exact_groups, strong_pairs, idx)
         for n, members in enumerate(
             sorted((m for m in components.values() if len(m) > 1), key=lambda m: str(m[0].path))
         )
@@ -188,8 +202,8 @@ def build_families(
             family_id=f"poss-{n:05d}",
             kind="possible",
             partitions=[
-                # review-only: every file is its own keeper; surplus is always empty
-                FormatPartition(format=r.format, files=[r], keeper=r, surplus=[])
+                # review-only: no clusters, so surplus is structurally impossible
+                FormatPartition(format=r.format, files=[r], clusters=[])
                 for r in members
             ],
             flags=["review-only"],
@@ -203,30 +217,52 @@ def _make_family(
     family_id: str,
     members: list[FileRecord],
     exact_groups: dict[str, list[FileRecord]],
+    strong_pairs: set[frozenset[int]],
+    idx: dict[int, int],
 ) -> Family:
     by_format: dict[str, list[FileRecord]] = {}
     for r in members:
         by_format.setdefault(r.format, []).append(r)
 
     partitions = []
+    cluster_n = 0
     for fmt in sorted(by_format):
         files = sorted(by_format[fmt], key=lambda r: str(r.path))
-        keeper = choose_keeper(files)
-        partitions.append(FormatPartition(
-            format=fmt,
-            files=files,
-            keeper=keeper,
-            surplus=[f for f in files if f is not keeper],
-        ))
+        # direct-edge clusters within the partition: exact-hash equality or a
+        # recorded strong pair — never transitive family membership
+        local = _UnionFind(len(files))
+        for i, a in enumerate(files):
+            for j in range(i + 1, len(files)):
+                b = files[j]
+                if (a.exact_hash and a.exact_hash == b.exact_hash) or (
+                    frozenset((idx[id(a)], idx[id(b)])) in strong_pairs
+                ):
+                    local.union(i, j)
+        comps: dict[int, list[FileRecord]] = {}
+        for i, f in enumerate(files):
+            comps.setdefault(local.find(i), []).append(f)
+        clusters = []
+        for group in comps.values():
+            if len(group) < 2:
+                continue  # singleton: informational member, nothing deletable
+            keeper = choose_keeper(group)
+            clusters.append(Cluster(
+                cluster_id=f"c{cluster_n:04d}",
+                files=group,
+                keeper=keeper,
+                surplus=[f for f in group if f is not keeper],
+            ))
+            cluster_n += 1
+        partitions.append(FormatPartition(format=fmt, files=files, clusters=clusters))
 
     exact_ids = {id(r) for grp in exact_groups.values() for r in grp}
     all_exact = all(id(r) in exact_ids for r in members)
     flags = []
-    visual_partition_too_big = any(
-        len(p.files) > 3 and not all(id(f) in exact_ids for f in p.files)
-        for p in partitions
+    visual_cluster_too_big = any(
+        len(c.files) > 3 and not all(id(f) in exact_ids for f in c.files)
+        for p in partitions for c in p.clusters
     )
-    if visual_partition_too_big:
+    if visual_cluster_too_big:
         flags.append("possible-burst")
     if any(_low_entropy(r) for r in members):
         flags.append("low-entropy")

@@ -73,11 +73,13 @@ def test_capture_key_from_exif(tmp_path):
     ifd = exif.get_ifd(0x8769)
     ifd[0x9003] = "2026:07:09 12:00:00"
     ifd[0x8827] = 400
+    ifd[0x9291] = "42"  # SubSecTimeOriginal
     save(img, tmp_path / "shot.jpg", "JPEG", exif=exif)
     from dupefinder.imaging import capture_key
-    key = capture_key(load_image(tmp_path / "shot.jpg"))
+    key, subsec = capture_key(load_image(tmp_path / "shot.jpg"))
     assert key is not None and key.startswith("2026:07:09 12:00:00")
     assert "400" in key
+    assert subsec == "42"
 
 
 def test_thumbnail_b64(tmp_path):
@@ -102,4 +104,5 @@ def test_real_cr3_preview_and_capture_key():
     img = load_image(REAL_CR3)
     assert img.width > 1000
     from dupefinder.imaging import capture_key
-    assert capture_key(img)  # Canon embeds full EXIF in the preview
+    key, _subsec = capture_key(img)
+    assert key  # Canon embeds shot EXIF in the preview (LibRaw-rewritten header)

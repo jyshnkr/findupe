@@ -51,6 +51,7 @@ class FileRecord:
     dev: int
     inode: int
     volume: str  # volume mount root, e.g. "/" or "/Volumes/Extreme SSD"
+    volume_uuid: str = ""  # filesystem identity — cache keys use this, not the mount path
     is_cloud_stub: bool = False
     cloud_synced: bool = False  # lives in an iCloud/Dropbox-synced tree: deletion propagates
     is_image: bool = field(init=False)
@@ -60,9 +61,12 @@ class FileRecord:
     dhash: int | None = None
     width: int | None = None
     height: int | None = None
-    capture_key: str | None = None      # RAW guard: DateTimeOriginal + exposure params
+    capture_key: str | None = None      # DateTimeOriginal + exposure params (1s granularity)
+    capture_subsec: str | None = None   # SubSecTimeOriginal: distinguishes burst frames
     hash_error: str | None = None       # unreadable/undecodable — reported, never fatal
-    companions: list[Path] = field(default_factory=list)  # sidecars riding along
+    # sidecar/Live-Photo records riding along — full FileRecords so they carry
+    # size + hash all the way into the selection JSON and undo manifest
+    companions: list["FileRecord"] = field(default_factory=list)
     hardlink_of: Path | None = None     # same (dev, inode) as an earlier record
 
     def __post_init__(self) -> None:
@@ -71,13 +75,27 @@ class FileRecord:
 
 
 @dataclass
-class FormatPartition:
-    """All copies of one visual image in one format; at most one keeper survives."""
-    format: str
+class Cluster:
+    """Files of one format that are DIRECTLY exact/strong-connected — true copies
+    of one image. Surplus lives only here: transitive family membership alone
+    never makes a file deletable."""
+    cluster_id: str
     files: list[FileRecord]
     keeper: FileRecord
-    # surplus = files minus keeper; these are the only pre-checkable candidates
-    surplus: list[FileRecord]
+    surplus: list[FileRecord]  # files minus keeper: the only pre-checkable candidates
+
+
+@dataclass
+class FormatPartition:
+    """All files of one format within a family. Members outside any cluster are
+    informational (e.g. the cross-format sibling that joined via a RAW↔JPEG edge)."""
+    format: str
+    files: list[FileRecord]
+    clusters: list[Cluster]
+
+    @property
+    def clustered(self) -> set[int]:
+        return {id(f) for c in self.clusters for f in c.files}
 
 
 @dataclass
@@ -90,11 +108,11 @@ class Family:
 
     @property
     def surplus_bytes(self) -> int:
-        return sum(f.size for p in self.partitions for f in p.surplus)
+        return sum(f.size for p in self.partitions for c in p.clusters for f in c.surplus)
 
     @property
     def surplus_count(self) -> int:
-        return sum(len(p.surplus) for p in self.partitions)
+        return sum(len(c.surplus) for p in self.partitions for c in p.clusters)
 
 
 @dataclass

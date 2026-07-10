@@ -12,8 +12,11 @@ from __future__ import annotations
 
 import fnmatch
 import os
+import plistlib
 import stat as stat_mod
+import subprocess
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 from .models import (
@@ -54,6 +57,26 @@ def volume_root(path: Path) -> str:
     if len(parts) >= 3 and parts[1] == "Volumes":
         return f"/{parts[1]}/{parts[2]}"
     return "/"
+
+
+@lru_cache(maxsize=64)
+def volume_uuid(mount: str) -> str:
+    """Filesystem identity for cache keys. A different drive mounted at the same
+    path must not inherit cached hashes — the mount path alone can't tell them
+    apart. Falls back to the mount path if diskutil is unavailable."""
+    try:
+        out = subprocess.run(
+            ["diskutil", "info", "-plist", mount],
+            capture_output=True, timeout=15,
+        )
+        if out.returncode == 0:
+            info = plistlib.loads(out.stdout)
+            u = info.get("VolumeUUID") or info.get("DiskUUID")
+            if u:
+                return str(u)
+    except (OSError, subprocess.TimeoutExpired, plistlib.InvalidFileException):
+        pass
+    return mount
 
 
 def is_cloud_synced(path: Path) -> bool:
@@ -135,7 +158,9 @@ def _walk(
             if any(fnmatch.fnmatch(entry.path, g) or fnmatch.fnmatch(entry.name, g) for g in excludes):
                 continue
 
-            key = norm_path(path).casefold()
+            # exact-NFC path dedup only — casefolding here would silently drop
+            # genuinely distinct files (a.txt vs A.TXT) on case-SENSITIVE volumes
+            key = norm_path(path)
             if key in seen_paths:
                 continue
             seen_paths.add(key)
@@ -150,18 +175,25 @@ def _walk(
                 result.skipped_stubs.append(path)
                 continue
 
+            ino_key = (st.st_dev, st.st_ino)
+            if ino_key in seen_inodes and st.st_nlink <= 1:
+                # same physical file reached twice (overlapping roots, or a
+                # case-insensitive volume aliasing the same path spelling)
+                continue
+
+            vol = volume_root(path)
             rec = FileRecord(
                 path=path,
                 size=st.st_size,
                 mtime_ns=st.st_mtime_ns,
                 dev=st.st_dev,
                 inode=st.st_ino,
-                volume=volume_root(path),
+                volume=vol,
+                volume_uuid=volume_uuid(vol),
                 is_cloud_stub=stub,
                 cloud_synced=is_cloud_synced(path),
             )
 
-            ino_key = (st.st_dev, st.st_ino)
             if st.st_nlink > 1 and ino_key in seen_inodes:
                 rec.hardlink_of = seen_inodes[ino_key]
                 result.hardlink_notes.append((path, seen_inodes[ino_key]))
@@ -173,11 +205,20 @@ def _walk(
             result.errors.append((path, str(e)))
 
 
+# Live Photo HEIC and MOV are written moments apart; an unrelated same-stem video
+# (vacation.jpg + vacation.mov from different sources) is typically far away in time.
+# Failing to pair is safe (the MOV just stays an ordinary record); over-pairing
+# would trash an unrelated video — so pair conservatively.
+_LIVE_PHOTO_MTIME_WINDOW_NS = 10 * 1_000_000_000
+
+
 def _attach_companions(result: DiscoverResult) -> None:
     """Sidecars (XMP/AAE/THM) and Live Photo MOVs become companions of their primary.
 
-    Pairing rule: same directory + same stem (case-insensitive). MOV/MP4 only pairs
-    with a HEIC/JPEG primary (Live Photo); it stays a normal record otherwise.
+    Pairing rule: same directory + same stem (case-insensitive). MOV/MP4 pairs only
+    with a HEIC/JPEG primary whose mtime is within 10s (Live Photo); otherwise it
+    stays a normal record. Companions are full FileRecords so their size and hash
+    travel through the selection JSON and undo manifest for verification.
     """
     by_stem: dict[tuple[str, str], list[FileRecord]] = {}
     for rec in result.records:
@@ -196,15 +237,19 @@ def _attach_companions(result: DiscoverResult) -> None:
         ]
         if not primaries:
             continue  # orphan sidecars/videos stay ordinary records
-        live_primaries = [r for r in primaries if r.format in ("heic", "jpeg")]
         for r in sidecars:
             for p in primaries:
-                p.companions.append(r.path)
+                p.companions.append(r)
             companion_paths.add(r.path)
-        if live_primaries:
-            for r in movs:
+        for r in movs:
+            live_primaries = [
+                p for p in primaries
+                if p.format in ("heic", "jpeg")
+                and abs(p.mtime_ns - r.mtime_ns) <= _LIVE_PHOTO_MTIME_WINDOW_NS
+            ]
+            if live_primaries:
                 for p in live_primaries:
-                    p.companions.append(r.path)
+                    p.companions.append(r)
                 companion_paths.add(r.path)
 
     if companion_paths:

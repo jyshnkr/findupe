@@ -70,11 +70,19 @@ def group_exact(
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         by_partial: dict[tuple[int, str], list[FileRecord]] = {}
+        partial_failed: list[FileRecord] = []
         for rec, ph in pool.map(_partial, [r for recs in sized for r in recs]):
             if ph is not None:
                 by_partial.setdefault((rec.size, ph), []).append(rec)
+            else:
+                partial_failed.append(rec)
 
         finalists = [r for recs in by_partial.values() if len(recs) > 1 for r in recs]
+        # a transient partial-hash failure must not silently exclude a file from
+        # duplicate detection — give it the full hash directly
+        for rec in partial_failed:
+            rec.hash_error = None
+            finalists.append(rec)
 
         # SQLite is main-thread-only by design: resolve cache hits here, pool
         # computes only the misses.

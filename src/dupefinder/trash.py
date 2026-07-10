@@ -123,7 +123,7 @@ class FakeTrasher:
 @dataclass
 class ApplyPlan:
     to_trash: list[dict] = field(default_factory=list)      # verified delete entries
-    companions: list[Path] = field(default_factory=list)    # ride-along sidecars/MOVs
+    companions: list[dict] = field(default_factory=list)    # verified, deduplicated ride-alongs
     skipped: list[tuple[str, str]] = field(default_factory=list)   # (path, reason)
     rejected_families: dict[str, str] = field(default_factory=dict)  # family -> reason
     fatal: str | None = None
@@ -150,11 +150,44 @@ def _verify_entry(entry: dict) -> str | None:
     return None
 
 
+def _validate_selection(selection: dict) -> str | None:
+    """Structural validation so a malformed/hand-edited file fails loudly, not with
+    a traceback. Returns an error string or None."""
+    if not isinstance(selection, dict):
+        return "selection is not a JSON object"
+    if selection.get("schema_version") != "1":
+        return "unsupported or missing selection schema_version"
+    for section in ("delete", "keep"):
+        entries = selection.get(section, [])
+        if not isinstance(entries, list):
+            return f"'{section}' must be a list"
+        for e in entries:
+            if not isinstance(e, dict):
+                return f"'{section}' contains a non-object entry"
+            for field_name, typ in (("path", str), ("size", int), ("blake2b", str),
+                                    ("family", str), ("format", str)):
+                if not isinstance(e.get(field_name), typ):
+                    return f"'{section}' entry missing or invalid '{field_name}': {e.get('path', '?')}"
+            comps = e.get("companions", [])
+            if not isinstance(comps, list):
+                return f"'companions' must be a list on {e['path']}"
+            for c in comps:
+                if not isinstance(c, dict) or not isinstance(c.get("path"), str) \
+                        or not isinstance(c.get("size"), int):
+                    return f"invalid companion entry on {e['path']}"
+    return None
+
+
+def _cluster_key(e: dict) -> tuple[str, str, str]:
+    return (e["family"], e["format"], e.get("cluster", ""))
+
+
 def build_apply_plan(selection: dict) -> ApplyPlan:
     plan = ApplyPlan()
 
-    if selection.get("schema_version") != "1":
-        plan.fatal = "unsupported or missing selection schema_version"
+    err = _validate_selection(selection)
+    if err:
+        plan.fatal = err
         return plan
     deletes: list[dict] = selection.get("delete", [])
     keeps: list[dict] = selection.get("keep", [])
@@ -170,22 +203,23 @@ def build_apply_plan(selection: dict) -> ApplyPlan:
         )
         return plan
 
-    # keepers first: a partition whose keeper fails verification loses ALL deletions
-    keeper_ok: dict[tuple[str, str], bool] = {}
+    # keepers first: a cluster whose keeper fails verification loses ALL deletions
+    keeper_ok: dict[tuple[str, str, str], bool] = {}
     for k in keeps:
         err = _verify_entry(k)
-        key = (k["family"], k["format"])
+        key = _cluster_key(k)
         keeper_ok[key] = keeper_ok.get(key, True) and err is None
         if err:
             plan.rejected_families[k["family"]] = f"keeper {k['path']}: {err}"
 
+    seen_companions: dict[str, dict] = {}  # path -> entry, deduplicated across primaries
     for e in deletes:
-        key = (e["family"], e["format"])
+        key = _cluster_key(e)
         if key not in keeper_ok:
             plan.rejected_families.setdefault(
-                e["family"], f"no keeper recorded for partition {key} — refusing its deletions"
+                e["family"], f"no keeper recorded for cluster {key} — refusing its deletions"
             )
-            plan.skipped.append((e["path"], "no verified keeper for its partition"))
+            plan.skipped.append((e["path"], "no verified keeper for its cluster"))
             continue
         if not keeper_ok[key]:
             plan.skipped.append((e["path"], "keeper failed verification"))
@@ -196,10 +230,19 @@ def build_apply_plan(selection: dict) -> ApplyPlan:
             continue
         plan.to_trash.append(e)
         for c in e.get("companions", []):
-            cp = Path(c)
-            if cp.exists():
-                plan.companions.append(cp)
+            if c["path"] in seen_companions or c["path"] in delete_paths:
+                continue
+            # companions are verified like any candidate; a modified sidecar is
+            # left in place (orphaned but intact) rather than trashed unverified
+            cerr = _verify_entry(c) if c.get("blake2b") else (
+                None if Path(c["path"]).exists() else "no longer exists"
+            )
+            if cerr:
+                plan.skipped.append((c["path"], f"companion: {cerr}"))
+                continue
+            seen_companions[c["path"]] = c
 
+    plan.companions = list(seen_companions.values())
     return plan
 
 
@@ -242,7 +285,7 @@ def apply_selection(
             else:
                 kept.append(e)
         plan.to_trash = kept
-        plan.companions = [c for c in plan.companions if _volume_of(c) not in blocked]
+        plan.companions = [c for c in plan.companions if _volume_of(Path(c["path"])) not in blocked]
         if not plan.to_trash:
             return plan, None
 
@@ -253,8 +296,10 @@ def apply_selection(
         {"path": e["path"], "size": e["size"], "blake2b": e["blake2b"], "status": "pending"}
         for e in plan.to_trash
     ] + [
-        {"path": str(c), "size": c.stat().st_size, "blake2b": None, "status": "pending",
-         "companion": True}
+        # scan-time size/hash, NOT re-statted here: undo must locate what was
+        # verified, and hash-matching makes restore immune to Trash renames
+        {"path": c["path"], "size": c["size"], "blake2b": c.get("blake2b"),
+         "status": "pending", "companion": True}
         for c in plan.companions
     ]
     manifest = {
@@ -266,7 +311,9 @@ def apply_selection(
     }
     _write_json_atomic(manifest_path, manifest)  # intent on disk BEFORE any trash call
 
-    all_paths = [Path(e["path"]) for e in plan.to_trash] + plan.companions
+    all_paths = [Path(e["path"]) for e in plan.to_trash] + [
+        Path(c["path"]) for c in plan.companions
+    ]
     outcomes = trasher.trash(all_paths)
     for entry in manifest["entries"]:
         err = outcomes.get(Path(entry["path"]), "not attempted")
@@ -335,7 +382,9 @@ def undo(
 
 
 def _find_in_trash(entry: dict, locations: list[Path]) -> Path | None:
-    """Locate by size, confirm by hash when we have one — immune to Trash renames."""
+    """Locate by size, confirm by hash — immune to Trash renames. Entries without
+    a hash (shouldn't happen post-v2 selections) additionally require an exact
+    name match so a same-size stranger is never restored in a file's place."""
     for loc in locations:
         try:
             candidates = [p for p in loc.iterdir() if p.is_file()]
@@ -345,11 +394,10 @@ def _find_in_trash(entry: dict, locations: list[Path]) -> Path | None:
             try:
                 if cand.stat().st_size != entry["size"]:
                     continue
-                if entry["blake2b"] is None:  # companion: size + stem prefix match
-                    if not cand.name.startswith(Path(entry["path"]).stem):
-                        continue
-                    return cand
-                if full_hash(cand) == entry["blake2b"]:
+                if entry.get("blake2b"):
+                    if full_hash(cand) == entry["blake2b"]:
+                        return cand
+                elif cand.name == Path(entry["path"]).name:
                     return cand
             except OSError:
                 continue

@@ -32,6 +32,7 @@ Image.MAX_IMAGE_PIXELS = 500_000_000  # photographs, not decompression bombs —
 
 _EXIF_DT_ORIGINAL = 0x9003
 _TIFF_DATETIME = 0x0132  # RAW previews (LibRaw-rewritten) store capture time here
+_EXIF_SUBSEC_ORIGINAL = 0x9291  # distinguishes burst frames shot in the same second
 _EXIF_EXPOSURE = 0x829A
 _EXIF_FNUMBER = 0x829D
 _EXIF_ISO = 0x8827
@@ -78,20 +79,24 @@ def load_image(path: Path) -> Image.Image:
     return img
 
 
-def capture_key(img: Image.Image) -> str | None:
-    """Shot fingerprint: capture time + exposure params. None if EXIF absent."""
+def capture_key(img: Image.Image) -> tuple[str | None, str | None]:
+    """(shot fingerprint, sub-second) — the fingerprint is capture time + exposure
+    params at 1-second granularity; SubSecTimeOriginal separates burst frames shot
+    within the same second (measured on a real EOS R6 II: '75' vs '97').
+    RAW embedded previews usually lack SubSec — comparison treats None as unknown."""
     try:
         exif = img.getexif()
         ifd = exif.get_ifd(_EXIF_IFD)
         dt = ifd.get(_EXIF_DT_ORIGINAL) or exif.get(_TIFF_DATETIME)
         if not dt:
-            return None
+            return None, None
         parts = [str(dt)] + [
             str(ifd.get(tag, "")) for tag in (_EXIF_EXPOSURE, _EXIF_FNUMBER, _EXIF_ISO, _EXIF_FOCAL)
         ]
-        return "|".join(parts)
+        subsec = ifd.get(_EXIF_SUBSEC_ORIGINAL)
+        return "|".join(parts), (str(subsec) if subsec not in (None, "") else None)
     except Exception:
-        return None
+        return None, None
 
 
 def _perceptual_worker(path_str: str) -> dict:
@@ -99,15 +104,17 @@ def _perceptual_worker(path_str: str) -> dict:
     path = Path(path_str)
     try:
         img = load_image(path)
+        # for every image, not just RAW: a capture-time conflict can demote
+        # any suspicious match to the review-only tier
+        key, subsec = capture_key(img)
         return {
             "path": path_str,
             "phash": int(str(imagehash.phash(img)), 16),
             "dhash": int(str(imagehash.dhash(img)), 16),
             "width": img.width,
             "height": img.height,
-            # for every image, not just RAW: a capture-time conflict can demote
-            # any suspicious match to the review-only tier
-            "capture_key": capture_key(img),
+            "capture_key": key,
+            "capture_subsec": subsec,
         }
     except Exception as e:  # decode failures are per-file findings, never fatal
         return {"path": path_str, "error": f"{type(e).__name__}: {e}"}
@@ -128,6 +135,7 @@ def compute_perceptual(
             rec.phash, rec.dhash = cached.phash, cached.dhash
             rec.width, rec.height = cached.width, cached.height
             rec.capture_key = cached.capture_key
+            rec.capture_subsec = cached.capture_subsec
         else:
             todo.append(rec)
 
@@ -147,6 +155,7 @@ def compute_perceptual(
         rec.phash, rec.dhash = res["phash"], res["dhash"]
         rec.width, rec.height = res["width"], res["height"]
         rec.capture_key = res["capture_key"]
+        rec.capture_subsec = res["capture_subsec"]
         done.append(rec)
 
     if cache is not None and done:

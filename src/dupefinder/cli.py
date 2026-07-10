@@ -50,7 +50,8 @@ def cmd_scan(args: argparse.Namespace) -> int:
             disc.records, exact, threshold_possible=args.threshold
         )
         members = [r for f in families for p in f.partitions for r in p.files]
-        ensure_hashes(members, cache=cache)
+        companions = [c for r in members for c in r.companions]
+        ensure_hashes(members + companions, cache=cache)
 
     scan_id = datetime.now().strftime("%Y%m%d-%H%M%S")
     scan = ScanResult(
@@ -76,7 +77,14 @@ def _make_trasher(args: argparse.Namespace):
 
 
 def cmd_apply(args: argparse.Namespace) -> int:
-    selection = json.loads(Path(args.selection).read_text())
+    try:
+        selection = json.loads(Path(args.selection).read_text())
+    except OSError as e:
+        print(f"cannot read selection file: {e}", file=sys.stderr)
+        return 2
+    except json.JSONDecodeError as e:
+        print(f"selection file is not valid JSON: {e}", file=sys.stderr)
+        return 2
     trasher = _make_trasher(args)
 
     plan, manifest_path = apply_selection(
@@ -100,7 +108,7 @@ def cmd_apply(args: argparse.Namespace) -> int:
         for e in plan.to_trash:
             print(f"  would trash: {e['path']}")
         for c in plan.companions:
-            print(f"  would trash: {c} (companion)")
+            print(f"  would trash: {c['path']} (companion)")
         return 0
 
     answer = input("type 'trash' to confirm (anything else aborts): ")

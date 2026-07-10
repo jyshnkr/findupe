@@ -32,10 +32,11 @@ def _file_row(
     rec: FileRecord,
     family: Family,
     fmt: str,
-    is_keeper: bool,
+    role: str,          # "keeper" | "cand" | "info"
+    cluster_id: str,
     prechecked: bool,
+    flagged: bool,
     thumb: Thumbnailer,
-    checkable: bool = True,
 ) -> str:
     p = html.escape(str(rec.path))
     h = html.escape(rec.exact_hash or "")
@@ -48,28 +49,39 @@ def _file_row(
         )
     dims = f"{rec.width}×{rec.height}" if rec.width else ""
     badges = []
-    if is_keeper:
+    if role == "keeper":
         badges.append('<span class="badge keep">KEEPER</span>')
+    if role == "info":
+        badges.append('<span class="badge info" title="Related file — not a copy of anything; never deletable here">sibling</span>')
     if rec.cloud_synced:
         badges.append('<span class="badge cloud" title="In a cloud-synced folder: deleting propagates to your other devices">☁ synced</span>')
     for c in rec.companions:
-        badges.append(f'<span class="badge comp" title="Trashed together with this file">+ {html.escape(c.name)}</span>')
-    if not checkable:
-        control = ""  # review-only sections carry no controls at all
-    elif is_keeper:
+        badges.append(f'<span class="badge comp" title="Trashed together with this file">+ {html.escape(c.path.name)}</span>')
+
+    common = (
+        f'data-family="{family.family_id}" data-format="{fmt}" data-cluster="{cluster_id}" '
+        f'data-path="{p}" data-size="{rec.size}" data-hash="{h}"'
+    )
+    if role == "keeper":
         control = (
-            f'<input type="checkbox" disabled class="keeper" title="This is the suggested survivor — apply refuses to trash the last copy" '
-            f'data-family="{family.family_id}" data-format="{fmt}" data-path="{p}" data-size="{rec.size}" data-hash="{h}">'
+            f'<input type="checkbox" disabled class="keeper" '
+            f'title="This is the suggested survivor — apply refuses to trash the last copy" {common}>'
         )
-    else:
-        comps = html.escape(json.dumps([str(c) for c in rec.companions]))
+    elif role == "cand":
+        # companions carry size+hash so apply can re-verify them like any candidate
+        comps = html.escape(json.dumps([
+            {"path": str(c.path), "size": c.size, "blake2b": c.exact_hash}
+            for c in rec.companions
+        ]))
+        flag_attr = ' data-flagged="1"' if flagged else ""
         control = (
             f'<input type="checkbox" class="cand" {"checked" if prechecked else ""} '
-            f'data-family="{family.family_id}" data-format="{fmt}" data-path="{p}" data-size="{rec.size}" data-hash="{h}" '
-            f"data-companions=\"{comps}\">"
+            f'{common} data-companions="{comps}"{flag_attr}>'
         )
+    else:
+        control = ""  # informational rows carry no controls at all
     return (
-        f'<div class="file{" iskeeper" if is_keeper else ""}">'
+        f'<div class="file{" iskeeper" if role == "keeper" else ""}">'
         f"{control}{img}"
         f'<div class="meta"><code>{p}</code>'
         f"<small>{_fmt_bytes(rec.size)} {dims} {' '.join(badges)}</small></div></div>"
@@ -80,21 +92,28 @@ def _family_html(fam: Family, thumb: Thumbnailer, checkable: bool) -> str:
     flags = "".join(
         f'<span class="badge warn">{html.escape(f)}</span>' for f in fam.flags
     )
-    precheck = checkable and not fam.flags  # flagged families are never pre-checked
+    flagged = bool(fam.flags)
+    precheck = checkable and not flagged  # flagged families are never pre-checked
     parts = []
     for part in fam.partitions:
-        rows = "".join(
-            _file_row(
-                rec, fam, part.format,
-                is_keeper=(rec is part.keeper),
-                prechecked=precheck and rec in part.surplus,
-                thumb=thumb,
-                checkable=checkable,
-            )
-            for rec in part.files
-        )
+        rows = []
+        clustered = part.clustered if checkable else set()
+        for cluster in (part.clusters if checkable else []):
+            for rec in cluster.files:
+                role = "keeper" if rec is cluster.keeper else "cand"
+                rows.append(_file_row(
+                    rec, fam, part.format, role, cluster.cluster_id,
+                    prechecked=precheck and role == "cand",
+                    flagged=flagged, thumb=thumb,
+                ))
+        for rec in part.files:
+            if id(rec) not in clustered or not checkable:
+                rows.append(_file_row(
+                    rec, fam, part.format, "info", "",
+                    prechecked=False, flagged=flagged, thumb=thumb,
+                ))
         label = f'<div class="fmt">{html.escape(part.format)}</div>' if checkable else ""
-        parts.append(f'<div class="partition">{label}{rows}</div>')
+        parts.append(f'<div class="partition">{label}{"".join(rows)}</div>')
     return (
         f'<div class="family" id="{fam.family_id}">'
         f'<div class="famhead">{fam.family_id} {flags}</div>{"".join(parts)}</div>'
@@ -142,6 +161,7 @@ body { margin: 2rem auto; max-width: 70rem; padding: 0 1rem; }
 .badge.cloud { background: #1565c033; color: #1565c0; }
 .badge.comp { background: #6a1b9a33; color: #8e24aa; }
 .badge.warn { background: #e6510033; color: #e65100; }
+.badge.info { background: #45455533; color: #78788c; }
 #bar { position: sticky; top: 0; background: Canvas; border-bottom: 2px solid #2e7d32;
        padding: .8rem 0; display: flex; gap: 1rem; align-items: center; z-index: 5; }
 button { font: inherit; padding: .4rem .9rem; border-radius: 6px; cursor: pointer; }
@@ -162,17 +182,22 @@ function updateCounter() {
   document.getElementById('count').textContent =
     checked.length + ' files selected — ' + fmtBytes(bytes) + ' reclaimable';
 }
+function clusterKey(el) {
+  return el.dataset.family + '\\u0000' + el.dataset.format + '\\u0000' + el.dataset.cluster;
+}
 function exportSelection() {
+  const keeperMap = new Map();
+  document.querySelectorAll('input.keeper').forEach(k => keeperMap.set(clusterKey(k), k));
   const del = [], keep = new Map();
   document.querySelectorAll('input.cand:checked').forEach(cb => {
     del.push({ path: cb.dataset.path, size: +cb.dataset.size,
-               blake2b: cb.dataset.hash, family: cb.dataset.family, format: cb.dataset.format,
+               blake2b: cb.dataset.hash, family: cb.dataset.family,
+               format: cb.dataset.format, cluster: cb.dataset.cluster,
                companions: JSON.parse(cb.dataset.companions || '[]') });
-    document.querySelectorAll('input.keeper').forEach(k => {
-      if (k.dataset.family === cb.dataset.family && k.dataset.format === cb.dataset.format)
-        keep.set(k.dataset.path, { path: k.dataset.path, size: +k.dataset.size,
-                                   blake2b: k.dataset.hash, family: k.dataset.family, format: k.dataset.format });
-    });
+    const k = keeperMap.get(clusterKey(cb));
+    if (k) keep.set(k.dataset.path, { path: k.dataset.path, size: +k.dataset.size,
+                                      blake2b: k.dataset.hash, family: k.dataset.family,
+                                      format: k.dataset.format, cluster: k.dataset.cluster });
   });
   const payload = { schema_version: '1', scan_id: SCAN_ID,
                     exported_at: new Date().toISOString(),
@@ -184,7 +209,10 @@ function exportSelection() {
   a.click();
 }
 function setAll(state) {
-  document.querySelectorAll('input.cand').forEach(cb => { cb.checked = state; });
+  // checking en masse must never reach flagged (burst/low-entropy) families;
+  // unchecking is always allowed
+  const sel = state ? 'input.cand:not([data-flagged])' : 'input.cand';
+  document.querySelectorAll(sel).forEach(cb => { cb.checked = state; });
   updateCounter();
 }
 function paginate(sectionId, pageSize) {

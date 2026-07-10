@@ -67,8 +67,21 @@ def test_companions_attach_and_leave_records(tree):
     recs = {r.path.name: r for r in res.records}
     # sidecar and live-photo MOV removed from records, attached as companions
     assert set(recs) == {"IMG_1.CR3", "IMG_2.HEIC", "random.mov", "orphan.xmp"}
-    assert [p.name for p in recs["IMG_1.CR3"].companions] == ["IMG_1.xmp"]
-    assert [p.name for p in recs["IMG_2.HEIC"].companions] == ["IMG_2.MOV"]
+    # companions are full FileRecords carrying size for later verification
+    (xmp,) = recs["IMG_1.CR3"].companions
+    assert xmp.path.name == "IMG_1.xmp" and xmp.size > 0
+    (mov,) = recs["IMG_2.HEIC"].companions
+    assert mov.path.name == "IMG_2.MOV"
+
+
+def test_mov_far_in_time_is_not_a_live_photo(tree):
+    """Same stem but written days apart: an unrelated video must NOT ride along."""
+    root = tree({"v/vacation.jpg": "photo", "v/vacation.mov": "unrelated video"})
+    os.utime(root / "v" / "vacation.mov", ns=(1_000, 1_000))  # ancient mtime
+    res = discover([root])
+    recs = {r.path.name: r for r in res.records}
+    assert set(recs) == {"vacation.jpg", "vacation.mov"}
+    assert recs["vacation.jpg"].companions == []
 
 
 def test_exclude_globs(tree):
@@ -108,6 +121,12 @@ def test_is_dataless_flag():
 def test_volume_root():
     assert volume_root(Path("/Users/x/file.txt")) == "/"
     assert volume_root(Path("/Volumes/Extreme SSD/pics/a.heic")) == "/Volumes/Extreme SSD"
+
+
+def test_volume_uuid_populated(tree):
+    root = tree({"a.txt": "x"})
+    (rec,) = discover([root]).records
+    assert rec.volume_uuid  # real UUID via diskutil, or mount-path fallback
 
 
 def test_canonical_format():

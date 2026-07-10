@@ -17,19 +17,22 @@ from .models import FileRecord, norm_path
 
 DEFAULT_DB = Path.home() / ".dupefinder" / "index.db"
 
+_SCHEMA_VERSION = 2  # v2: volume_uuid keying + capture_subsec
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS files (
-    path       TEXT PRIMARY KEY,
-    size       INTEGER NOT NULL,
-    mtime_ns   INTEGER NOT NULL,
-    volume     TEXT NOT NULL,
-    exact_hash TEXT,
-    phash      INTEGER,
-    dhash      INTEGER,
-    width      INTEGER,
-    height     INTEGER,
+    path        TEXT PRIMARY KEY,
+    size        INTEGER NOT NULL,
+    mtime_ns    INTEGER NOT NULL,
+    volume_uuid TEXT NOT NULL,
+    exact_hash  TEXT,
+    phash       INTEGER,
+    dhash       INTEGER,
+    width       INTEGER,
+    height      INTEGER,
     capture_key TEXT,
-    last_seen  TEXT NOT NULL
+    capture_subsec TEXT,
+    last_seen   TEXT NOT NULL
 );
 """
 
@@ -55,6 +58,7 @@ class CachedInfo:
     width: int | None
     height: int | None
     capture_key: str | None
+    capture_subsec: str | None
 
 
 class Cache:
@@ -63,6 +67,11 @@ class Cache:
         self.db_path = db_path
         self.conn = sqlite3.connect(db_path)
         self.conn.execute("PRAGMA journal_mode=WAL")
+        version = self.conn.execute("PRAGMA user_version").fetchone()[0]
+        if version != _SCHEMA_VERSION:
+            # cheap-to-rebuild cache: recreate rather than migrate
+            self.conn.execute("DROP TABLE IF EXISTS files")
+            self.conn.execute(f"PRAGMA user_version={_SCHEMA_VERSION}")
         self.conn.execute(_SCHEMA)
         self.conn.commit()
         self.hits = 0
@@ -70,17 +79,18 @@ class Cache:
 
     def lookup(self, rec: FileRecord) -> CachedInfo | None:
         row = self.conn.execute(
-            "SELECT exact_hash, phash, dhash, width, height, capture_key "
-            "FROM files WHERE path=? AND size=? AND mtime_ns=? AND volume=?",
-            (norm_path(rec.path), rec.size, rec.mtime_ns, rec.volume),
+            "SELECT exact_hash, phash, dhash, width, height, capture_key, capture_subsec "
+            "FROM files WHERE path=? AND size=? AND mtime_ns=? AND volume_uuid=?",
+            (norm_path(rec.path), rec.size, rec.mtime_ns, rec.volume_uuid),
         ).fetchone()
         if row is None:
             self.misses += 1
             return None
         self.hits += 1
-        exact_hash, phash, dhash, width, height, capture_key = row
+        exact_hash, phash, dhash, width, height, capture_key, capture_subsec = row
         return CachedInfo(
-            exact_hash, _to_unsigned(phash), _to_unsigned(dhash), width, height, capture_key
+            exact_hash, _to_unsigned(phash), _to_unsigned(dhash),
+            width, height, capture_key, capture_subsec,
         )
 
     def store(self, records: list[FileRecord]) -> None:
@@ -89,21 +99,22 @@ class Cache:
             # COALESCE merges pipeline stages (exact pass, then perceptual pass) for the
             # SAME file version. If size/mtime changed, the old values are stale and must
             # be replaced outright — hence the CASE guard on every merged column.
-            "INSERT INTO files (path, size, mtime_ns, volume, exact_hash, phash, dhash,"
-            " width, height, capture_key, last_seen) VALUES (?,?,?,?,?,?,?,?,?,?,?) "
+            "INSERT INTO files (path, size, mtime_ns, volume_uuid, exact_hash, phash, dhash,"
+            " width, height, capture_key, capture_subsec, last_seen) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(path) DO UPDATE SET "
             + ", ".join(
                 f"{col} = CASE WHEN files.size = excluded.size AND files.mtime_ns = excluded.mtime_ns"
                 f" THEN COALESCE(excluded.{col}, files.{col}) ELSE excluded.{col} END"
-                for col in ("exact_hash", "phash", "dhash", "width", "height", "capture_key")
+                for col in ("exact_hash", "phash", "dhash", "width", "height",
+                            "capture_key", "capture_subsec")
             )
             + ", size=excluded.size, mtime_ns=excluded.mtime_ns,"
-            " volume=excluded.volume, last_seen=excluded.last_seen",
+            " volume_uuid=excluded.volume_uuid, last_seen=excluded.last_seen",
             [
                 (
-                    norm_path(r.path), r.size, r.mtime_ns, r.volume, r.exact_hash,
+                    norm_path(r.path), r.size, r.mtime_ns, r.volume_uuid, r.exact_hash,
                     _to_signed(r.phash), _to_signed(r.dhash),
-                    r.width, r.height, r.capture_key, now,
+                    r.width, r.height, r.capture_key, r.capture_subsec, now,
                 )
                 for r in records
             ],

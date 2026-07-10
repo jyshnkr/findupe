@@ -12,11 +12,16 @@ from dupefinder.trash import (
 )
 
 
-def entry(path: Path, family="fam-00000", fmt="bin", companions=None) -> dict:
+def entry(path: Path, family="fam-00000", fmt="bin", cluster="c0000", companions=None) -> dict:
     return {
         "path": str(path), "size": path.stat().st_size, "blake2b": full_hash(path),
-        "family": family, "format": fmt, "companions": companions or [],
+        "family": family, "format": fmt, "cluster": cluster,
+        "companions": companions or [],
     }
+
+
+def comp_entry(path: Path) -> dict:
+    return {"path": str(path), "size": path.stat().st_size, "blake2b": full_hash(path)}
 
 
 def make_selection(tmp_path, content=b"same-bytes") -> tuple[dict, Path, Path]:
@@ -92,13 +97,45 @@ def test_companions_ride_along(tmp_path):
     sel, keep, dele = make_selection(tmp_path)
     sidecar = tmp_path / "delete.xmp"
     sidecar.write_text("<xmp/>")
-    sel["delete"][0]["companions"] = [str(sidecar)]
+    sel["delete"][0]["companions"] = [comp_entry(sidecar)]
     trasher, undo_dir = env(tmp_path)
     plan, manifest_path = apply_selection(sel, trasher, undo_dir=undo_dir)
     assert not sidecar.exists()
     manifest = json.loads(manifest_path.read_text())
     comp = next(e for e in manifest["entries"] if e.get("companion"))
     assert comp["status"] == "trashed"
+    assert comp["blake2b"]  # scan-time hash travels into the manifest
+
+
+def test_modified_companion_left_in_place(tmp_path):
+    """A companion that changed since the scan must not be trashed unverified."""
+    sel, keep, dele = make_selection(tmp_path)
+    sidecar = tmp_path / "delete.xmp"
+    sidecar.write_text("<xmp/>")
+    sel["delete"][0]["companions"] = [comp_entry(sidecar)]
+    sidecar.write_text("<xmp>edited after scan</xmp>")
+    trasher, undo_dir = env(tmp_path)
+    plan, _ = apply_selection(sel, trasher, undo_dir=undo_dir)
+    assert not dele.exists()      # primary was verified and trashed
+    assert sidecar.exists()       # modified companion untouched
+    assert any("companion" in reason for _, reason in plan.skipped)
+
+
+def test_shared_companion_trashed_once(tmp_path):
+    """A sidecar attached to two deleted primaries appears once in the plan."""
+    content = b"same-bytes"
+    keep = tmp_path / "keep.bin"; keep.write_bytes(content)
+    d1 = tmp_path / "d1.bin"; d1.write_bytes(content)
+    d2 = tmp_path / "d2.bin"; d2.write_bytes(content)
+    sidecar = tmp_path / "shared.xmp"; sidecar.write_text("<xmp/>")
+    ce = comp_entry(sidecar)
+    sel = {"schema_version": "1", "scan_id": "s2",
+           "delete": [entry(d1, companions=[ce]), entry(d2, companions=[ce])],
+           "keep": [entry(keep)]}
+    trasher, undo_dir = env(tmp_path)
+    plan, _ = apply_selection(sel, trasher, undo_dir=undo_dir)
+    assert [c["path"] for c in plan.companions] == [str(sidecar)]
+    assert not sidecar.exists()
 
 
 def test_dry_run_moves_nothing(tmp_path):
@@ -114,7 +151,7 @@ def test_undo_restores_files(tmp_path):
     sel, keep, dele = make_selection(tmp_path)
     sidecar = tmp_path / "delete.xmp"
     sidecar.write_text("<xmp/>")
-    sel["delete"][0]["companions"] = [str(sidecar)]
+    sel["delete"][0]["companions"] = [comp_entry(sidecar)]
     trasher, undo_dir = env(tmp_path)
     _, manifest_path = apply_selection(sel, trasher, undo_dir=undo_dir)
 
@@ -157,3 +194,23 @@ def test_preflight_refuses_volume_without_trashes():
 def test_bad_schema_and_empty_selection_are_fatal(tmp_path):
     assert build_apply_plan({"schema_version": "999"}).fatal
     assert build_apply_plan({"schema_version": "1", "delete": [], "keep": []}).fatal
+
+
+def test_malformed_selection_is_fatal_not_crash(tmp_path):
+    """Review finding: hand-edited/corrupt selections must fail loudly, not raise."""
+    cases = [
+        "not a dict",
+        {"schema_version": "1", "delete": "not-a-list", "keep": []},
+        {"schema_version": "1", "delete": [{"path": 42}], "keep": []},
+        {"schema_version": "1", "delete": [{"path": "/x", "size": "big",
+                                            "blake2b": "h", "family": "f", "format": "b"}], "keep": []},
+        {"schema_version": "1",
+         "delete": [{"path": "/x", "size": 1, "blake2b": "h", "family": "f",
+                     "format": "b", "companions": "nope"}], "keep": []},
+        {"schema_version": "1",
+         "delete": [{"path": "/x", "size": 1, "blake2b": "h", "family": "f",
+                     "format": "b", "companions": [{"path": 1}]}], "keep": []},
+    ]
+    for sel in cases:
+        plan = build_apply_plan(sel)  # must not raise
+        assert plan.fatal, f"expected fatal for {sel!r}"

@@ -39,20 +39,25 @@ def render(families, possible, tmp_path, **scan_kw) -> tuple[str, list[dict]]:
 
 def simulate_js_export(inputs: list[dict]) -> dict:
     """Reimplements the report's exportSelection() logic for round-trip testing."""
+    def ckey(i):
+        return (i["data-family"], i["data-format"], i["data-cluster"])
+
+    keeper_map = {ckey(i): i for i in inputs if i.get("class") == "keeper"}
     delete, keep = [], {}
-    cands = [i for i in inputs if i.get("class") == "cand" and "checked" in i]
-    keepers = [i for i in inputs if i.get("class") == "keeper"]
-    for cb in cands:
+    for cb in [i for i in inputs if i.get("class") == "cand" and "checked" in i]:
         delete.append({
             "path": cb["data-path"], "size": int(cb["data-size"]),
-            "blake2b": cb["data-hash"], "family": cb["data-family"], "format": cb["data-format"],
+            "blake2b": cb["data-hash"], "family": cb["data-family"],
+            "format": cb["data-format"], "cluster": cb["data-cluster"],
+            "companions": json.loads(cb.get("data-companions", "[]")),
         })
-        for k in keepers:
-            if k["data-family"] == cb["data-family"] and k["data-format"] == cb["data-format"]:
-                keep[k["data-path"]] = {
-                    "path": k["data-path"], "size": int(k["data-size"]),
-                    "blake2b": k["data-hash"], "family": k["data-family"], "format": k["data-format"],
-                }
+        k = keeper_map.get(ckey(cb))
+        if k:
+            keep[k["data-path"]] = {
+                "path": k["data-path"], "size": int(k["data-size"]),
+                "blake2b": k["data-hash"], "family": k["data-family"],
+                "format": k["data-format"], "cluster": k["data-cluster"],
+            }
     return {"schema_version": "1", "scan_id": "testscan",
             "delete": delete, "keep": list(keep.values())}
 
@@ -72,16 +77,20 @@ def test_keeper_disabled_surplus_prechecked(tmp_path):
     assert len(keeper) == 1 and "disabled" in keeper[0]
     assert len(cands) == 1 and "checked" in cands[0]
     assert keeper[0]["data-hash"] == "aa11"
+    assert keeper[0]["data-cluster"] == cands[0]["data-cluster"]
     assert '"testscan"' in text  # scan id reaches the JS
 
 
-def test_flagged_family_not_prechecked(tmp_path):
+def test_flagged_family_not_prechecked_and_marked(tmp_path):
     recs = [mk(f"/p/burst{i}.jpg", phash=PH, dhash=PH, mtime=i) for i in range(5)]
     families, possible = build_families(recs, {})
     assert families[0].flags  # possible-burst
-    _, inputs = render(families, possible, tmp_path)
+    text, inputs = render(families, possible, tmp_path)
     cands = [i for i in inputs if i.get("class") == "cand"]
     assert cands and all("checked" not in c for c in cands)
+    # data-flagged keeps "Check all suggested" away from these
+    assert all(c.get("data-flagged") == "1" for c in cands)
+    assert ":not([data-flagged])" in text
 
 
 def test_possible_section_has_no_checkboxes(tmp_path):
@@ -92,6 +101,17 @@ def test_possible_section_has_no_checkboxes(tmp_path):
     text, inputs = render(families, possible, tmp_path)
     assert [i for i in inputs if i["_section"] == "possible-sec"] == []
     assert "review only" in text
+
+
+def test_cross_format_sibling_renders_as_info_row(tmp_path):
+    raw = mk("/p/IMG_1.CR3", phash=PH, dhash=PH, capture_key="t|1", mtime=7)
+    jpg1 = mk("/p/IMG_1.jpg", phash=PH, dhash=PH, capture_key="t|1", capture_subsec="5")
+    jpg2 = mk("/p/IMG_1 copy.jpg", phash=PH, dhash=PH, capture_key="t|1", capture_subsec="5")
+    families, possible = build_families([raw, jpg1, jpg2], {})
+    text, inputs = render(families, possible, tmp_path)
+    # the CR3 is family context but must carry NO checkbox
+    assert not any(i["data-path"].endswith(".CR3") for i in inputs)
+    assert "sibling" in text
 
 
 def test_cloud_badge_and_notes(tmp_path):
@@ -118,7 +138,21 @@ def test_selection_round_trip(tmp_path):
     assert len(sel["delete"]) == 1 and len(sel["keep"]) == 1
     assert sel["delete"][0]["blake2b"] == "aa11"
     assert sel["keep"][0]["path"] != sel["delete"][0]["path"]
+    assert sel["delete"][0]["cluster"] == sel["keep"][0]["cluster"]
     json.dumps(sel)  # serializable
+
+
+def test_companions_exported_with_size_and_hash(tmp_path):
+    prim_keep = mk("/p/X.jpg", phash=PH, dhash=PH, mtime=1)
+    prim_del = mk("/p/X copy.jpg", phash=PH, dhash=PH, mtime=2)
+    sidecar = mk("/p/X copy.xmp", size=88)
+    sidecar.exact_hash = "sidehash"
+    prim_del.companions.append(sidecar)
+    families, possible = build_families([prim_keep, prim_del], {})
+    _, inputs = render(families, possible, tmp_path)
+    sel = simulate_js_export(inputs)
+    (comp,) = sel["delete"][0]["companions"]
+    assert comp == {"path": "/p/X copy.xmp", "size": 88, "blake2b": "sidehash"}
 
 
 def test_unicode_paths_render(tmp_path):
