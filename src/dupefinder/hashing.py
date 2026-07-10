@@ -99,3 +99,24 @@ def group_exact(
         if rec.exact_hash:
             groups.setdefault(rec.exact_hash, []).append(rec)
     return {h: recs for h, recs in groups.items() if len(recs) > 1}
+
+
+def ensure_hashes(records: list[FileRecord], cache: Cache | None = None) -> None:
+    """Guarantee exact_hash on the given records (family members).
+
+    Visual-only matches skip the exact funnel, but the selection file must carry
+    an expected BLAKE2b for every keeper and candidate so `apply` can re-verify.
+    """
+    for rec in records:
+        if rec.exact_hash or rec.hash_error:
+            continue
+        cached = cache.lookup(rec) if cache is not None else None
+        if cached is not None and cached.exact_hash:
+            rec.exact_hash = cached.exact_hash
+            continue
+        try:
+            rec.exact_hash = full_hash(rec.path)
+        except OSError as e:
+            rec.hash_error = f"full hash: {e}"
+    if cache is not None:
+        cache.store([r for r in records if r.exact_hash])
