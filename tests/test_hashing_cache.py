@@ -106,6 +106,21 @@ def test_stale_perceptual_fields_replaced_on_change(tree, tmp_path_factory):
         assert row == (None, "newhash")
 
 
+def test_high_bit_phash_survives_cache_round_trip(tree, tmp_path_factory):
+    """Unsigned 64-bit hashes with the top bit set must not overflow SQLite."""
+    root = tree({"a.jpg": "not-really-image"})
+    db = tmp_path_factory.mktemp("db") / "index.db"
+    big = 0xFEDC_BA98_7654_3210  # > 2^63
+    with Cache(db) as cache:
+        (rec,) = scan(root)
+        rec.phash, rec.dhash = big, (1 << 64) - 1
+        cache.store([rec])
+    with Cache(db) as cache:
+        (rec2,) = scan(root)
+        cached = cache.lookup(rec2)
+        assert cached.phash == big and cached.dhash == (1 << 64) - 1
+
+
 def test_interrupted_scan_resumes_from_cache(tree, tmp_path_factory):
     root = tree({"a.bin": "dup", "b.bin": "dup", "c.bin": "dup"})
     db = tmp_path_factory.mktemp("db") / "index.db"

@@ -34,6 +34,19 @@ CREATE TABLE IF NOT EXISTS files (
 """
 
 
+def _to_signed(v: int | None) -> int | None:
+    """SQLite INTEGER is signed 64-bit; perceptual hashes are unsigned 64-bit."""
+    if v is None:
+        return None
+    return v - (1 << 64) if v >= (1 << 63) else v
+
+
+def _to_unsigned(v: int | None) -> int | None:
+    if v is None:
+        return None
+    return v + (1 << 64) if v < 0 else v
+
+
 @dataclass
 class CachedInfo:
     exact_hash: str | None
@@ -65,7 +78,10 @@ class Cache:
             self.misses += 1
             return None
         self.hits += 1
-        return CachedInfo(*row)
+        exact_hash, phash, dhash, width, height, capture_key = row
+        return CachedInfo(
+            exact_hash, _to_unsigned(phash), _to_unsigned(dhash), width, height, capture_key
+        )
 
     def store(self, records: list[FileRecord]) -> None:
         now = datetime.now(timezone.utc).isoformat()
@@ -86,7 +102,8 @@ class Cache:
             [
                 (
                     norm_path(r.path), r.size, r.mtime_ns, r.volume, r.exact_hash,
-                    r.phash, r.dhash, r.width, r.height, r.capture_key, now,
+                    _to_signed(r.phash), _to_signed(r.dhash),
+                    r.width, r.height, r.capture_key, now,
                 )
                 for r in records
             ],
