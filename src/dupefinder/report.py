@@ -62,9 +62,11 @@ def _file_row(
             f'data-family="{family.family_id}" data-format="{fmt}" data-path="{p}" data-size="{rec.size}" data-hash="{h}">'
         )
     else:
+        comps = html.escape(json.dumps([str(c) for c in rec.companions]))
         control = (
             f'<input type="checkbox" class="cand" {"checked" if prechecked else ""} '
-            f'data-family="{family.family_id}" data-format="{fmt}" data-path="{p}" data-size="{rec.size}" data-hash="{h}">'
+            f'data-family="{family.family_id}" data-format="{fmt}" data-path="{p}" data-size="{rec.size}" data-hash="{h}" '
+            f"data-companions=\"{comps}\">"
         )
     return (
         f'<div class="file{" iskeeper" if is_keeper else ""}">'
@@ -164,7 +166,8 @@ function exportSelection() {
   const del = [], keep = new Map();
   document.querySelectorAll('input.cand:checked').forEach(cb => {
     del.push({ path: cb.dataset.path, size: +cb.dataset.size,
-               blake2b: cb.dataset.hash, family: cb.dataset.family, format: cb.dataset.format });
+               blake2b: cb.dataset.hash, family: cb.dataset.family, format: cb.dataset.format,
+               companions: JSON.parse(cb.dataset.companions || '[]') });
     document.querySelectorAll('input.keeper').forEach(k => {
       if (k.dataset.family === cb.dataset.family && k.dataset.format === cb.dataset.format)
         keep.set(k.dataset.path, { path: k.dataset.path, size: +k.dataset.size,
