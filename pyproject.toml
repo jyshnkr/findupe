@@ -1,6 +1,6 @@
 [project]
 name = "dupefinder"
-version = "0.1.0"
+version = "0.2.0"
 description = "Safe duplicate finder & reviewer for macOS — exact + perceptual image matching, review-first deletion to Trash"
 readme = "README.md"
 requires-python = ">=3.13"

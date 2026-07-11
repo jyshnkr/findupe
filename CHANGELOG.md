@@ -6,6 +6,12 @@ automatically by [Commitizen](https://commitizen-tools.github.io/commitizen/)
 from [Conventional Commits](https://www.conventionalcommits.org/) on every
 qualifying push to `main` — the heading style below matches what it emits.
 
+## v0.2.0 (2026-07-11)
+
+### Feat
+
+- split HTML report into images/other categories
+
 ## v0.1.0 (2026-07-09)
 
 ### Feat
