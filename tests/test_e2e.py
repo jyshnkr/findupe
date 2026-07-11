@@ -54,43 +54,66 @@ def test_full_round_trip(tmp_path, monkeypatch, capsys):
     undo_dir = tmp_path / "undo"
     trash_dir = tmp_path / "trash"
     report = tmp_path / "report.html"
+    img_report = tmp_path / "report-images.html"
+    other_report = tmp_path / "report-other.html"
     base = ["--db", str(db), "--undo-dir", str(undo_dir), "--trash-dir", str(trash_dir)]
 
-    # -- scan
+    # -- scan: now writes two category-scoped reports from one scan
     rc = main(base + ["scan", str(root), "-o", str(report), "--workers", "0"])
     assert rc == 0
-    text = report.read_text()
-    assert "shot.heic" in text and "shot.jpg" in text
+    img_text = img_report.read_text()
+    other_text = other_report.read_text()
+    assert "shot.heic" in img_text and "shot.jpg" in img_text
+    assert "report.pdf" in other_text and "photo copy.jpg" not in other_text
 
-    parser = InputCollector()
-    parser.feed(text)
-    keepers = [i for i in parser.inputs if i.get("class") == "keeper"]
-    cands = [i for i in parser.inputs if i.get("class") == "cand"]
+    img_parser = InputCollector()
+    img_parser.feed(img_text)
+    other_parser = InputCollector()
+    other_parser.feed(other_text)
 
-    cand_paths = {c["data-path"] for c in cands}
+    img_cands = [i for i in img_parser.inputs if i.get("class") == "cand"]
+    img_cand_paths = {c["data-path"] for c in img_cands}
     # cross-format siblings and hardlinks are never candidates
-    assert not any(p.endswith(("shot.heic", "shot.jpg")) for p in cand_paths)
-    assert not any("linked" in p for p in cand_paths)
+    assert not any(p.endswith(("shot.heic", "shot.jpg")) for p in img_cand_paths)
+    assert not any("linked" in p for p in img_cand_paths)
     # the copy-named files lost the keeper contest
-    assert any(p.endswith("photo copy.jpg") for p in cand_paths)
-    assert any(p.endswith("café 📷 copy.png") for p in cand_paths)
-    assert all("checked" in c for c in cands)  # unflagged families are pre-checked
+    assert any(p.endswith("photo copy.jpg") for p in img_cand_paths)
+    assert any(p.endswith("café 📷 copy.png") for p in img_cand_paths)
+    assert all("checked" in c for c in img_cands)  # unflagged families are pre-checked
 
-    # -- export selection exactly as the report JS would
-    sel = simulate_js_export(parser.inputs)
-    sel["scan_id"] = "e2e"
-    sel_path = tmp_path / "selection.json"
-    sel_path.write_text(json.dumps(sel))
+    other_cands = [i for i in other_parser.inputs if i.get("class") == "cand"]
+    other_cand_paths = {c["data-path"] for c in other_cands}
+    assert any(p.endswith("report.pdf") for p in other_cand_paths)
+    assert not any("linked" in p for p in other_cand_paths)
+    assert all("checked" in c for c in other_cands)
+
+    # -- export both selections exactly as each report's JS would, then apply
+    #    each once (per-category apply — the locked workflow decision)
+    img_sel = simulate_js_export(img_parser.inputs)
+    img_sel["scan_id"] = "e2e"
+    img_sel_path = tmp_path / "selection-images.json"
+    img_sel_path.write_text(json.dumps(img_sel))
+
+    other_sel = simulate_js_export(other_parser.inputs)
+    other_sel["scan_id"] = "e2e"
+    other_sel_path = tmp_path / "selection-other.json"
+    other_sel_path.write_text(json.dumps(other_sel))
 
     # -- dry-run moves nothing
-    rc = main(base + ["apply", str(sel_path), "--dry-run"])
+    rc = main(base + ["apply", str(img_sel_path), "--dry-run"])
+    assert rc == 0
+    rc = main(base + ["apply", str(other_sel_path), "--dry-run"])
     assert rc == 0
     assert (root / "photo copy.jpg").exists()
+    assert (root / "report.pdf").exists() and (root / "backup" / "report.pdf").exists()
 
-    # -- real apply with typed confirmation
+    # -- real apply, once per category, each with typed confirmation
     monkeypatch.setattr("builtins.input", lambda *_: "trash")
-    rc = main(base + ["apply", str(sel_path)])
+    rc = main(base + ["apply", str(img_sel_path)])
     assert rc == 0
+    rc = main(base + ["apply", str(other_sel_path)])
+    assert rc == 0
+
     assert not (root / "photo copy.jpg").exists()
     assert not (root / "café 📷 copy.png").exists()
     assert (root / "photo.jpg").exists()
@@ -99,16 +122,17 @@ def test_full_round_trip(tmp_path, monkeypatch, capsys):
     # exactly one of the two PDFs survived
     assert (root / "report.pdf").exists() ^ (root / "backup" / "report.pdf").exists()
 
-    # -- undo restores everything
+    # -- undo restores everything: one manifest per category apply
     manifests = list((undo_dir).glob("*.json"))
-    assert len(manifests) == 1
-    rc = main(base + ["undo", manifests[0].name])
-    assert rc == 0
+    assert len(manifests) == 2
+    for m in manifests:
+        rc = main(base + ["undo", m.name])
+        assert rc == 0
     assert (root / "photo copy.jpg").exists()
     assert (root / "café 📷 copy.png").exists()
     assert (root / "report.pdf").exists() and (root / "backup" / "report.pdf").exists()
 
-    # -- second scan is cache-warm and still succeeds
+    # -- second scan is cache-warm and still succeeds (doesn't re-inspect output)
     rc = main(base + ["scan", str(root), "-o", str(report), "--workers", "0"])
     assert rc == 0
 

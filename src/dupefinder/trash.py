@@ -290,7 +290,10 @@ def apply_selection(
             return plan, None
 
     scan_id = selection.get("scan_id", "unknown")
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    # Microsecond precision: two category reports from one scan share scan_id,
+    # so second-level precision alone risks one apply's manifest silently
+    # overwriting another's if both land in the same UTC second.
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
     manifest_path = undo_dir / f"{scan_id}-{stamp}.json"
     entries = [
         {"path": e["path"], "size": e["size"], "blake2b": e["blake2b"], "status": "pending"}

@@ -196,6 +196,52 @@ def test_bad_schema_and_empty_selection_are_fatal(tmp_path):
     assert build_apply_plan({"schema_version": "1", "delete": [], "keep": []}).fatal
 
 
+def test_same_second_applies_get_distinct_manifests(tmp_path, monkeypatch):
+    """Review finding: the undo-manifest stamp is microsecond-precision
+    specifically so two applies of the SAME scan_id landing in the same UTC
+    second get distinct manifest files instead of one silently overwriting
+    the other. The e2e test exercises this in real (timing-dependent) usage;
+    this test freezes the clock so the guarantee is checked deterministically."""
+    import dupefinder.trash as trash_mod
+    from datetime import datetime, timezone
+
+    base = datetime(2026, 7, 11, 12, 0, 0, tzinfo=timezone.utc)
+    # apply_selection reads datetime.now(timezone.utc) twice per invocation
+    # (once for the manifest filename stamp, once for created_at) -- two
+    # applies need four distinct instants, all within the same UTC second.
+    instants = iter(base.replace(microsecond=us) for us in (100, 200, 300, 400))
+
+    class FrozenClock:
+        @staticmethod
+        def now(tz=None):
+            return next(instants)
+
+    monkeypatch.setattr(trash_mod, "datetime", FrozenClock)
+
+    content = b"same-bytes-two-applies"
+    keep1 = tmp_path / "keep1.bin"; keep1.write_bytes(content)
+    dele1 = tmp_path / "delete1.bin"; dele1.write_bytes(content)
+    keep2 = tmp_path / "keep2.bin"; keep2.write_bytes(content)
+    dele2 = tmp_path / "delete2.bin"; dele2.write_bytes(content)
+    sel1 = {"schema_version": "1", "scan_id": "same-scan",
+            "delete": [entry(dele1)], "keep": [entry(keep1)]}
+    sel2 = {"schema_version": "1", "scan_id": "same-scan",
+            "delete": [entry(dele2)], "keep": [entry(keep2)]}
+    trasher, undo_dir = env(tmp_path)
+
+    _, manifest1 = apply_selection(sel1, trasher, undo_dir=undo_dir)
+    _, manifest2 = apply_selection(sel2, trasher, undo_dir=undo_dir)
+
+    assert manifest1 != manifest2
+    assert manifest1.exists() and manifest2.exists()
+    assert sorted(list_manifests(undo_dir)) == sorted([manifest1, manifest2])
+    # both manifests independently readable and pointing at their own file
+    m1 = json.loads(manifest1.read_text())
+    m2 = json.loads(manifest2.read_text())
+    assert m1["entries"][0]["path"] == str(dele1)
+    assert m2["entries"][0]["path"] == str(dele2)
+
+
 def test_malformed_selection_is_fatal_not_crash(tmp_path):
     """Review finding: hand-edited/corrupt selections must fail loudly, not raise."""
     cases = [

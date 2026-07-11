@@ -47,6 +47,8 @@ def _file_row(
             f'<img loading="lazy" src="data:image/jpeg;base64,{b64}" alt="">'
             if b64 else '<div class="noimg">no preview</div>'
         )
+    else:
+        img = f'<div class="noimg fileicon">{html.escape(rec.format.upper())}</div>'
     dims = f"{rec.width}×{rec.height}" if rec.width else ""
     badges = []
     if role == "keeper":
@@ -154,6 +156,7 @@ body { margin: 2rem auto; max-width: 70rem; padding: 0 1rem; }
 .file img { max-width: 128px; max-height: 96px; border-radius: 4px; }
 .noimg { width: 128px; height: 96px; display: flex; align-items: center; justify-content: center;
          background: color-mix(in srgb, currentColor 10%, transparent); border-radius: 4px; font-size: .7rem; }
+.fileicon { font-weight: 700; letter-spacing: .05em; opacity: .6; }
 .meta code { font-size: .8rem; word-break: break-all; }
 .meta small { display: block; opacity: .75; }
 .badge { border-radius: 4px; padding: 0 .4rem; font-size: .7rem; font-weight: 600; }
@@ -171,6 +174,7 @@ input.cand, input.keeper { width: 1.1rem; height: 1.1rem; }
 
 _JS_TEMPLATE = """
 const SCAN_ID = %SCAN_ID%;
+const CATEGORY = %CATEGORY%;
 function fmtBytes(n) {
   const u = ['B','KB','MB','GB','TB']; let i = 0;
   while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
@@ -205,7 +209,7 @@ function exportSelection() {
   const blob = new Blob([JSON.stringify(payload, null, 1)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'dupefinder-selection-' + SCAN_ID + '.json';
+  a.download = 'dupefinder-selection-' + SCAN_ID + '-' + CATEGORY + '.json';
   a.click();
 }
 function setAll(state) {
@@ -247,16 +251,28 @@ document.addEventListener('DOMContentLoaded', () => {
 """
 
 
-def generate_report(
+def category_output_paths(base: Path) -> tuple[Path, Path]:
+    """report.html -> (report-images.html, report-other.html)."""
+    return (base.with_stem(base.stem + "-images"), base.with_stem(base.stem + "-other"))
+
+
+def _is_image_family(fam: Family) -> bool:
+    return any(rec.is_image for p in fam.partitions for rec in p.files)
+
+
+def _write_report(
     scan: ScanResult,
+    families: list[Family],
     possible: list[Family],
     out_path: Path,
+    category: str,
     thumb: Thumbnailer = thumbnail_b64,
 ) -> None:
-    exact = [f for f in scan.families if f.kind == "exact"]
-    visual = [f for f in scan.families if f.kind == "visual"]
-    total_surplus = sum(f.surplus_count for f in scan.families)
-    total_bytes = sum(f.surplus_bytes for f in scan.families)
+    exact = [f for f in families if f.kind == "exact"]
+    visual = [f for f in families if f.kind == "visual"]
+    total_surplus = sum(f.surplus_count for f in families)
+    total_bytes = sum(f.surplus_bytes for f in families)
+    sel_name = f"dupefinder-selection-{scan.scan_id}-{category}.json"
 
     def section(sec_id: str, title: str, fams: list[Family], checkable: bool, hint: str) -> str:
         if not fams:
@@ -264,16 +280,26 @@ def generate_report(
         body = "".join(_family_html(f, thumb, checkable) for f in fams)
         return f'<section id="{sec_id}"><h2>{title} ({len(fams)})</h2><p>{hint}</p>{body}</section>'
 
+    empty_note = (
+        f"<p>No duplicate {html.escape(category)} found in this scan.</p>"
+        if not exact and not visual and not possible else ""
+    )
+    js = (
+        _JS_TEMPLATE
+        .replace("%SCAN_ID%", json.dumps(scan.scan_id))
+        .replace("%CATEGORY%", json.dumps(category))
+    )
+
     doc = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>dupefinder — {html.escape(scan.scan_id)}</title>
+<title>dupefinder — {html.escape(category)} — {html.escape(scan.scan_id)}</title>
 <style>{_CSS}</style>
-<script>{_JS_TEMPLATE.replace("%SCAN_ID%", json.dumps(scan.scan_id))}</script>
+<script>{js}</script>
 </head><body>
-<h1>dupefinder report</h1>
+<h1>dupefinder report — {html.escape(category)}</h1>
 <p>scan <code>{html.escape(scan.scan_id)}</code> — roots: {", ".join(f"<code>{html.escape(str(r))}</code>" for r in scan.roots)}<br>
-{len(scan.families)} duplicate families · {total_surplus} surplus files · {_fmt_bytes(total_bytes)} reclaimable if all suggestions accepted</p>
+{len(families)} duplicate families · {total_surplus} surplus files · {_fmt_bytes(total_bytes)} reclaimable if all suggestions accepted</p>
 <div id="bar">
   <strong id="count"></strong>
   <button onclick="setAll(true)">Check all suggested</button>
@@ -281,9 +307,10 @@ def generate_report(
   <button onclick="exportSelection()" style="font-weight:700">⬇ Export selection</button>
 </div>
 <p>Review below, then export your selection and run
-<code>dupefinder apply dupefinder-selection-{html.escape(scan.scan_id)}.json</code>.
+<code>dupefinder apply {sel_name}</code>.
 Files go to the macOS <b>Trash</b> (recoverable), never deleted directly.
 Note: APFS clones are indistinguishable from true copies — trashing a clone reclaims no space.</p>
+{empty_note}
 {section("exact-sec", "Exact duplicates", exact, True,
          "Byte-identical files. The suggested keeper is pre-selected to survive; checked copies go to the Trash.")}
 {section("visual-sec", "Same image, multiple versions", visual, True,
@@ -296,3 +323,36 @@ Note: APFS clones are indistinguishable from true copies — trashing a clone re
 {_notes_html(scan)}
 </body></html>"""
     out_path.write_text(doc, encoding="utf-8")
+
+
+def generate_reports(
+    scan: ScanResult,
+    possible: list[Family],
+    base_out_path: Path,
+    thumb: Thumbnailer = thumbnail_b64,
+) -> tuple[Path, Path]:
+    """Render one scan into two category-scoped reports: images and other.
+
+    Classification is per-FAMILY, not per-cluster: a family is "images" if
+    ANY of its records is an image. For the overwhelming majority of families
+    this is also candidate-homogeneous, since surplus lives only within
+    per-format clusters and cross-format membership is otherwise
+    informational-only. The one edge case where it is not: if byte-identical
+    content exists under both an image and a non-image extension (e.g. a
+    ".jpg" and a ".bak" sharing one BLAKE2b hash), the whole family —
+    including a real non-image surplus candidate — renders in the images
+    report. This is one-directional (an image record always forces the
+    images bucket; a non-image candidate can never leak the other way) and
+    fails safe: the candidate still appears in exactly one report and is
+    still re-verified at apply, so the only consequence is a reviewer who
+    only opens report-other.html could miss it (under-deletion, never an
+    unwanted deletion). `possible` is images-only by construction (perceptual
+    hashing never runs on non-images), so it always renders in the images
+    report.
+    """
+    img_families = [f for f in scan.families if _is_image_family(f)]
+    other_families = [f for f in scan.families if not _is_image_family(f)]
+    img_path, other_path = category_output_paths(base_out_path)
+    _write_report(scan, img_families, possible, img_path, "images", thumb)
+    _write_report(scan, other_families, [], other_path, "other", thumb)
+    return img_path, other_path

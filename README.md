@@ -11,12 +11,22 @@ a re-imported CR3) become deletion candidates.
 
 ## Workflow
 
+`scan` writes two reports — one for images (exact + perceptual matching), one
+for everything else (PDFs, text, archives, ... — exact-hash matches only,
+since perceptual matching never applies to non-images). Review and apply each
+independently.
+
 ```
 1. uv run dupefinder scan ~/Pictures/inbox "/Volumes/Extreme SSD/photos"
-2. open report.html          # review side-by-side thumbnails, adjust checkboxes
-3.                           # click "Export selection" -> dupefinder-selection-<id>.json
-4. uv run dupefinder apply dupefinder-selection-<id>.json --dry-run   # preview
-5. uv run dupefinder apply dupefinder-selection-<id>.json             # typed confirmation
+2. open report-images.html   # photo/image duplicates — thumbnails, adjust checkboxes
+   open report-other.html    # everything else — plain checkbox + path + size rows
+3.                           # click "Export selection" on each ->
+                              #   dupefinder-selection-<id>-images.json
+                              #   dupefinder-selection-<id>-other.json
+4. uv run dupefinder apply dupefinder-selection-<id>-images.json --dry-run   # preview
+   uv run dupefinder apply dupefinder-selection-<id>-other.json  --dry-run   # preview
+5. uv run dupefinder apply dupefinder-selection-<id>-images.json            # typed confirmation
+   uv run dupefinder apply dupefinder-selection-<id>-other.json             # typed confirmation
 6. uv run dupefinder undo                                             # list restore points
    uv run dupefinder undo <manifest>                                  # put everything back
 ```
@@ -81,7 +91,7 @@ Requires macOS + [uv](https://docs.astral.sh/uv/). Python 3.13 and all dependenc
 
 ```
 uv sync
-uv run pytest          # 70 tests
+uv run pytest          # 88 tests
 uv run dupefinder --help
 ```
 

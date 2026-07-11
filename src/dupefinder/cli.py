@@ -19,7 +19,7 @@ from .grouping import build_families
 from .hashing import ensure_hashes, group_exact
 from .imaging import compute_perceptual
 from .models import ScanResult
-from .report import generate_report
+from .report import _is_image_family, generate_reports
 from .trash import UNDO_DIR, FakeTrasher, FinderTrasher, apply_selection, list_manifests, undo
 
 
@@ -59,16 +59,24 @@ def cmd_scan(args: argparse.Namespace) -> int:
         skipped_stubs=disc.skipped_stubs, skipped_managed=disc.skipped_managed,
         errors=disc.errors, hardlink_notes=disc.hardlink_notes, zero_byte=disc.zero_byte,
     )
-    out = Path(args.output)
-    generate_report(scan, possible, out)
+    img_path, other_path = generate_reports(scan, possible, Path(args.output))
 
-    surplus = sum(f.surplus_count for f in families)
-    reclaimable = sum(f.surplus_bytes for f in families)
-    print(f"\n{len(families)} duplicate families · {surplus} surplus files · "
-          f"{_fmt_bytes(reclaimable)} reclaimable · {len(possible)} possible matches (review-only)")
-    print(f"report: {out.resolve()}")
-    print(f"next:   open the report, review, Export selection, then\n"
-          f"        dupefinder apply dupefinder-selection-{scan_id}.json")
+    img_families = [f for f in families if _is_image_family(f)]
+    other_families = [f for f in families if not _is_image_family(f)]
+
+    def _cat_summary(label: str, fams: list, path: Path) -> None:
+        surplus = sum(f.surplus_count for f in fams)
+        reclaimable = sum(f.surplus_bytes for f in fams)
+        print(f"  {label}: {len(fams)} families · {surplus} surplus · "
+              f"{_fmt_bytes(reclaimable)} reclaimable — {path.resolve()}")
+
+    print(f"\n{len(families)} duplicate families · {len(possible)} possible matches (review-only)")
+    _cat_summary("images", img_families, img_path)
+    _cat_summary("other ", other_families, other_path)
+    print("next:   open each report, review, Export selection, then run apply once per\n"
+          "        exported file, e.g.:\n"
+          f"        dupefinder apply dupefinder-selection-{scan_id}-images.json\n"
+          f"        dupefinder apply dupefinder-selection-{scan_id}-other.json")
     return 0
 
 
@@ -179,7 +187,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="download iCloud stubs instead of skipping them")
     p_scan.add_argument("--threshold", type=int, default=grouping.THRESHOLD_POSSIBLE,
                         help="max pHash distance for the review-only 'possible' tier")
-    p_scan.add_argument("-o", "--output", default="report.html")
+    p_scan.add_argument("-o", "--output", default="report.html",
+                        help="base report path; writes <name>-images.html and <name>-other.html")
     p_scan.add_argument("--workers", type=int, default=4, help=argparse.SUPPRESS)
     p_scan.set_defaults(func=cmd_scan)
 

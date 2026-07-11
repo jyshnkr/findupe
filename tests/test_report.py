@@ -4,7 +4,7 @@ from pathlib import Path
 
 from dupefinder.grouping import build_families
 from dupefinder.models import ScanResult
-from dupefinder.report import generate_report
+from dupefinder.report import _write_report, category_output_paths, generate_reports
 from test_grouping import PH, mk
 
 
@@ -30,7 +30,7 @@ class InputCollector(HTMLParser):
 def render(families, possible, tmp_path, **scan_kw) -> tuple[str, list[dict]]:
     scan = ScanResult(scan_id="testscan", roots=[Path("/p")], families=families, **scan_kw)
     out = tmp_path / "report.html"
-    generate_report(scan, possible, out, thumb=lambda p: None)
+    _write_report(scan, families, possible, out, "all", thumb=lambda p: None)
     text = out.read_text()
     parser = InputCollector()
     parser.feed(text)
@@ -163,3 +163,68 @@ def test_unicode_paths_render(tmp_path):
     assert "café 📷" in text
     cand = next(i for i in inputs if i.get("class") == "cand")
     assert cand["data-path"] == "/p/café 📷 copy.jpg"
+
+
+def test_category_output_paths_derivation():
+    assert category_output_paths(Path("report.html")) == (
+        Path("report-images.html"), Path("report-other.html"),
+    )
+    assert category_output_paths(Path("/tmp/out/report.html")) == (
+        Path("/tmp/out/report-images.html"), Path("/tmp/out/report-other.html"),
+    )
+    assert category_output_paths(Path("scan")) == (Path("scan-images"), Path("scan-other"))
+
+
+def test_generate_reports_splits_by_category(tmp_path):
+    pdf_a = mk("/p/doc.pdf", exact_hash="aa11")
+    pdf_b = mk("/p/backup/doc.pdf", exact_hash="aa11")
+    img_a = mk("/p/photo.jpg", exact_hash="bb22")
+    img_b = mk("/p/photo copy.jpg", exact_hash="bb22")
+    families, possible = build_families(
+        [pdf_a, pdf_b, img_a, img_b],
+        {"aa11": [pdf_a, pdf_b], "bb22": [img_a, img_b]},
+    )
+    scan = ScanResult(scan_id="testscan", roots=[Path("/p")], families=families)
+    base = tmp_path / "report.html"
+    img_path, other_path = generate_reports(scan, possible, base, thumb=lambda p: None)
+
+    assert img_path == tmp_path / "report-images.html"
+    assert other_path == tmp_path / "report-other.html"
+
+    img_text = img_path.read_text()
+    other_text = other_path.read_text()
+    assert "photo copy.jpg" in img_text and "doc.pdf" not in img_text
+    assert "doc.pdf" in other_text and "photo copy.jpg" not in other_text
+
+
+def test_other_report_has_no_visual_or_possible_sections(tmp_path):
+    pdf_a = mk("/p/doc.pdf", exact_hash="aa11")
+    pdf_b = mk("/p/backup/doc.pdf", exact_hash="aa11")
+    families, possible = build_families([pdf_a, pdf_b], {"aa11": [pdf_a, pdf_b]})
+    scan = ScanResult(scan_id="testscan", roots=[Path("/p")], families=families)
+    base = tmp_path / "report.html"
+    _, other_path = generate_reports(scan, possible, base, thumb=lambda p: None)
+    text = other_path.read_text()
+    assert 'id="visual-sec"' not in text
+    assert 'id="possible-sec"' not in text
+    assert 'id="exact-sec"' in text
+    assert "dupefinder-selection-testscan-other.json" in text
+    assert '"other"' in text  # CATEGORY const reaches the JS
+
+
+def test_other_report_empty_state(tmp_path):
+    img_a = mk("/p/photo.jpg", exact_hash="bb22")
+    img_b = mk("/p/photo copy.jpg", exact_hash="bb22")
+    families, possible = build_families([img_a, img_b], {"bb22": [img_a, img_b]})
+    scan = ScanResult(scan_id="testscan", roots=[Path("/p")], families=families)
+    base = tmp_path / "report.html"
+    _, other_path = generate_reports(scan, possible, base, thumb=lambda p: None)
+    assert "No duplicate other found in this scan." in other_path.read_text()
+
+
+def test_non_image_row_shows_format_badge(tmp_path):
+    pdf_a = mk("/p/doc.pdf", exact_hash="aa11")
+    pdf_b = mk("/p/backup/doc.pdf", exact_hash="aa11")
+    families, possible = build_families([pdf_a, pdf_b], {"aa11": [pdf_a, pdf_b]})
+    text, _ = render(families, possible, tmp_path)
+    assert 'class="noimg fileicon"' in text and "PDF" in text
