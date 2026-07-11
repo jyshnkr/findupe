@@ -17,7 +17,7 @@ dependencies = [
 dupefinder = "dupefinder.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "commitizen>=4"]
 
 [build-system]
 requires = ["hatchling"]
@@ -28,3 +28,14 @@ packages = ["src/dupefinder"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version_provider = "pep621"
+version_scheme = "pep440"
+tag_format = "v$version"
+major_version_zero = true
+update_changelog_on_bump = true
+changelog_incremental = true
+changelog_file = "CHANGELOG.md"
+annotated_tag = true

@@ -1,0 +1,38 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # skip the tool's own bump commit — avoids re-running on the push it makes
+    if: ${{ !startsWith(github.event.head_commit.message, 'bump:') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # commitizen needs full history since the last tag
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: cz
+        uses: commitizen-tools/commitizen-action@0.27.1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          changelog_increment_filename: _release_notes.md
+
+      - name: Create GitHub Release
+        # commitizen-action always sets `version` (= `cz version --project`,
+        # the static pyproject version) even on a no-bump run, since a
+        # no-increment `cz bump` exits via the action's default no_raise=21.
+        # Comparing against `previous_version` is the real bump signal.
+        if: ${{ steps.cz.outputs.version != steps.cz.outputs.previous_version }}
+        uses: softprops/action-gh-release@v3.0.1
+        with:
+          tag_name: v${{ steps.cz.outputs.version }}
+          body_path: _release_notes.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

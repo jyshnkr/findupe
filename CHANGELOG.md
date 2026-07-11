@@ -1,0 +1,21 @@
+# Changelog
+
+All notable changes to this project are documented here. Versions follow
+[Semantic Versioning](https://semver.org/). New entries are generated
+automatically by [Commitizen](https://commitizen-tools.github.io/commitizen/)
+from [Conventional Commits](https://www.conventionalcommits.org/) on every
+qualifying push to `main` — the heading style below matches what it emits.
+
+## v0.1.0 (2026-07-09)
+
+### Feat
+
+- exact-duplicate detection for any file type via size → 64KB-edge → full BLAKE2b funnel
+- same-photo-across-formats detection (HEIC/JPEG/RAW, re-encodes, resized exports) via orientation-normalized pHash + dHash; keeping `X.CR3` + `X.jpg` side by side is never flagged
+- self-contained offline HTML review report: side-by-side thumbnails, per-keeper pre-checked candidates, live reclaim counter, one-click selection export
+- review-first `apply` to the real macOS Trash (all volumes), typed confirmation, full re-verification at apply time, last-copy-per-partition protection
+- `undo` restores from an atomically-written manifest, immune to Finder's collision renames
+- companions (Live Photo `.MOV`, `.XMP`/`.AAE` sidecars) ride along with their primary on trash and undo
+- safety guards: Photos/Lightroom denylist, iCloud/Dropbox stub handling (`--materialize`), hardlink/symlink/zero-byte exclusion, burst/low-entropy flagging, cloud-sync badges
+- persistent SQLite hash cache; re-scans only hash new/changed files
+- validated end-to-end against a real 6,177-photo library; two rounds of real-data tuning plus a 20-agent adversarial code review (12 defects found and fixed) drove false positives to zero

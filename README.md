@@ -91,6 +91,17 @@ Finder") — that's the Trash integration. If you deny it, apply aborts safely.
 The hash cache lives in `~/.dupefinder/index.db` (re-scans only hash new/changed files);
 undo manifests in `~/.dupefinder/undo/`. `dupefinder cache clear` resets the cache.
 
+## Commit conventions & releases
+
+Commits to `main` follow [Conventional Commits](https://www.conventionalcommits.org/):
+`feat:` for user-facing additions, `fix:` for bug fixes, `chore:`/`docs:`/`test:`
+for everything with no release impact. A qualifying push is picked up automatically by
+[Commitizen](https://commitizen-tools.github.io/commitizen/) — it computes the next
+[semantic version](https://semver.org/) (`feat` → minor, `fix`/`perf`/`refactor` → patch,
+`feat!`/`BREAKING CHANGE` → major), updates `CHANGELOG.md`, tags the release, and a GitHub
+Action turns that tag into a [GitHub Release](https://github.com/jyshnkr/dupefinder/releases)
+with no manual step. See `.github/workflows/release.yml`.
+
 ## Deliberately out of scope (v1)
 
 APFS clone detection via extent inspection · scanning inside Photos/Lightroom libraries ·
