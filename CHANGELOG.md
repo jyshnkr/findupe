@@ -6,6 +6,12 @@ automatically by [Commitizen](https://commitizen-tools.github.io/commitizen/)
 from [Conventional Commits](https://www.conventionalcommits.org/) on every
 qualifying push to `main` — the heading style below matches what it emits.
 
+## v0.2.1 (2026-07-12)
+
+### Fix
+
+- fail fast on bad scan roots, surface hash/decode errors loudly
+
 ## v0.2.0 (2026-07-11)
 
 ### Feat
