@@ -131,6 +131,19 @@ def test_cloud_badge_and_notes(tmp_path):
     assert "Permission denied" in text
 
 
+def test_hash_errors_render_as_own_notes_block(tmp_path):
+    a = mk("/p/x.bin", exact_hash="cc")
+    b = mk("/p/y.bin", exact_hash="cc")
+    families, possible = build_families([a, b], {"cc": [a, b]})
+    text, _ = render(
+        families, possible, tmp_path,
+        hash_errors=[(Path("/p/broken.jpg"), "decode: cannot identify image file")],
+    )
+    assert "broken.jpg" in text
+    assert "decode: cannot identify image file" in text
+    assert "Unreadable/undecodable during hashing" in text
+
+
 def test_selection_round_trip(tmp_path):
     families, possible = make_exact_family()
     _, inputs = render(families, possible, tmp_path)

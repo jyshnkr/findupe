@@ -18,7 +18,7 @@ from .discover import discover
 from .grouping import build_families
 from .hashing import ensure_hashes, group_exact
 from .imaging import compute_perceptual
-from .models import ScanResult
+from .models import FileRecord, ScanResult
 from .report import _is_image_family, generate_reports
 from .trash import UNDO_DIR, FakeTrasher, FinderTrasher, apply_selection, list_manifests, undo
 
@@ -31,12 +31,38 @@ def _fmt_bytes(n: float) -> str:
     return f"{n} B"
 
 
+def _collect_hash_errors(
+    records: list[FileRecord], companions: list[FileRecord]
+) -> list[tuple[Path, str]]:
+    """Dedup by path: discover._attach_companions appends one shared sidecar
+    (e.g. an XMP) to EVERY primary in its stem-group, so a companion with the
+    same path can appear more than once in `companions` — one real problem
+    file must not be counted or reported more than once."""
+    seen: dict[Path, str] = {}
+    for rec in records + companions:
+        if rec.hash_error and rec.path not in seen:
+            seen[rec.path] = rec.hash_error
+    return list(seen.items())
+
+
 def cmd_scan(args: argparse.Namespace) -> int:
-    roots = [Path(p) for p in args.paths]
+    roots = [Path(p).expanduser().resolve() for p in args.paths]
+    bad_roots = [r for r in roots if not r.is_dir()]
+    if bad_roots:
+        for r in bad_roots:
+            print(f"error: {r}: not a directory or not mounted", file=sys.stderr)
+        return 2
     print(f"discovering files under {len(roots)} root(s)…")
     disc = discover(roots, exclude_globs=args.exclude, materialize=args.materialize)
     print(f"  {len(disc.records)} files · {len(disc.skipped_stubs)} cloud stubs skipped · "
-          f"{len(disc.skipped_managed)} managed libraries refused · {len(disc.errors)} errors")
+          f"{len(disc.skipped_managed)} managed libraries refused · {len(disc.hardlink_notes)} hardlinks · "
+          f"{len(disc.zero_byte)} zero-byte · {len(disc.errors)} read errors")
+    if disc.skipped_managed:
+        print("  refused (managed libraries):")
+        for p in disc.skipped_managed:
+            print(f"    {p}")
+    if disc.errors:
+        print(f"  {len(disc.errors)} read errors — see report notes for details")
 
     with Cache(args.db) as cache:
         print("exact pass (BLAKE2b funnel)…")
@@ -53,11 +79,16 @@ def cmd_scan(args: argparse.Namespace) -> int:
         companions = [c for r in members for c in r.companions]
         ensure_hashes(members + companions, cache=cache)
 
+    hash_errors = _collect_hash_errors(disc.records, companions)
+    pointer = " — see report notes for details" if hash_errors else ""
+    print(f"  {len(hash_errors)} decode/hash errors{pointer}")
+
     scan_id = datetime.now().strftime("%Y%m%d-%H%M%S")
     scan = ScanResult(
         scan_id=scan_id, roots=roots, families=families,
         skipped_stubs=disc.skipped_stubs, skipped_managed=disc.skipped_managed,
         errors=disc.errors, hardlink_notes=disc.hardlink_notes, zero_byte=disc.zero_byte,
+        hash_errors=hash_errors,
     )
     img_path, other_path = generate_reports(scan, possible, Path(args.output))
 

@@ -125,3 +125,4 @@ class ScanResult:
     errors: list[tuple[Path, str]] = field(default_factory=list)
     hardlink_notes: list[tuple[Path, Path]] = field(default_factory=list)
     zero_byte: list[Path] = field(default_factory=list)
+    hash_errors: list[tuple[Path, str]] = field(default_factory=list)

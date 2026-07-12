@@ -162,3 +162,85 @@ def test_undo_lists_when_no_arg(tmp_path, capsys):
 def test_cache_clear(tmp_path):
     rc = main(["--db", str(tmp_path / "i.db"), "cache", "clear"])
     assert rc == 0
+
+
+def test_scan_fails_fast_on_nonexistent_root(tmp_path, capsys):
+    """A typo'd/missing root must abort before any scanning, naming the resolved path."""
+    good = tmp_path / "good"
+    good.mkdir()
+    bad = tmp_path / "does-not-exist"
+    report = tmp_path / "report.html"
+
+    rc = main(["scan", str(good), str(bad), "-o", str(report)])
+
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert str(bad.resolve()) in err
+    assert not report.exists()
+    assert not (tmp_path / "report-images.html").exists()
+
+
+def test_scan_surfaces_hash_errors_in_terminal_and_report(tmp_path, capsys):
+    """A file that discovers fine but fails to decode/hash must be counted on the
+    terminal and detailed in the report notes — never silently dropped."""
+    root = tmp_path / "data"
+    root.mkdir()
+    (root / "broken.jpg").write_bytes(b"not really a jpeg")
+    db = tmp_path / "index.db"
+    undo_dir = tmp_path / "undo"
+    report = tmp_path / "report.html"
+
+    rc = main(["--db", str(db), "--undo-dir", str(undo_dir),
+               "scan", str(root), "-o", str(report), "--workers", "0"])
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "1 decode/hash errors" in out
+    assert "see report notes" in out
+    img_text = (tmp_path / "report-images.html").read_text()
+    assert "broken.jpg" in img_text
+    assert "Unreadable/undecodable during hashing" in img_text
+
+
+def test_scan_lists_refused_libraries_in_full(tmp_path, capsys):
+    """High-signal, usually-short lists (refused libraries) print in full on the
+    terminal rather than being buried as a bare count."""
+    root = tmp_path / "data"
+    lib = root / "Photos Library.photoslibrary"
+    lib.mkdir(parents=True)
+    (lib / "inner.jpg").write_bytes(b"x")
+    (root / "a.txt").write_bytes(b"hello")
+    db = tmp_path / "index.db"
+    undo_dir = tmp_path / "undo"
+    report = tmp_path / "report.html"
+
+    rc = main(["--db", str(db), "--undo-dir", str(undo_dir),
+               "scan", str(root), "-o", str(report), "--workers", "0"])
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert str(lib.resolve()) in out
+
+
+def test_scan_prints_read_error_count_with_pointer(tmp_path, capsys):
+    """Potentially-large lists (per-file read errors) print as a count + a
+    pointer to the report, not flooding the terminal with every path."""
+    root = tmp_path / "data"
+    good = root / "ok"
+    good.mkdir(parents=True)
+    (good / "a.txt").write_bytes(b"hello")
+    blocked = root / "blocked"
+    blocked.mkdir()
+    (blocked / "secret.txt").write_bytes(b"x")
+    blocked.chmod(0o000)
+    try:
+        db = tmp_path / "index.db"
+        undo_dir = tmp_path / "undo"
+        report = tmp_path / "report.html"
+        rc = main(["--db", str(db), "--undo-dir", str(undo_dir),
+                   "scan", str(root), "-o", str(report), "--workers", "0"])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "1 read errors — see report notes for details" in out
+    finally:
+        blocked.chmod(0o755)

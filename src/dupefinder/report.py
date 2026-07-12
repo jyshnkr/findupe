@@ -141,6 +141,8 @@ def _notes_html(scan: ScanResult) -> str:
           [str(p) for p in scan.zero_byte])
     block("Errors (unreadable or undecodable — nothing was done to these)",
           [f"{p}: {e}" for p, e in scan.errors])
+    block("Unreadable/undecodable during hashing (read fine, but couldn't be hashed/decoded — excluded from duplicate detection)",
+          [f"{p}: {e}" for p, e in scan.hash_errors])
     return "".join(blocks)
 
 
