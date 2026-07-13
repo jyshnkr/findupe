@@ -244,3 +244,228 @@ def test_scan_prints_read_error_count_with_pointer(tmp_path, capsys):
         assert "1 read errors — see report notes for details" in out
     finally:
         blocked.chmod(0o755)
+
+
+def test_scan_writes_history_entry(tmp_path):
+    """Every scan archives its report + a record, so a reviewed-but-never-applied
+    scan is recoverable after the next scan overwrites report.html."""
+    root = tmp_path / "data"
+    root.mkdir()
+    (root / "a.bin").write_bytes(b"dup" * 10)
+    (root / "b.bin").write_bytes(b"dup" * 10)
+    scans_dir = tmp_path / "scans"
+    base = ["--db", str(tmp_path / "index.db"), "--undo-dir", str(tmp_path / "undo"),
+            "--scans-dir", str(scans_dir)]
+
+    rc = main(base + ["scan", str(root), "-o", str(tmp_path / "report.html"), "--workers", "0"])
+
+    assert rc == 0
+    scan_dirs = list(scans_dir.iterdir())
+    assert len(scan_dirs) == 1
+    scan_dir = scan_dirs[0]
+    assert (scan_dir / "meta.json").exists()
+    assert (scan_dir / "report-images.html").exists()
+    assert (scan_dir / "report-other.html").exists()
+
+
+def test_zero_duplicate_scan_still_archived(tmp_path):
+    """Locked decision: every scan is archived automatically, even one that
+    finds nothing to review."""
+    root = tmp_path / "data"
+    root.mkdir()
+    (root / "unique.txt").write_bytes(b"only one file, no duplicates")
+    scans_dir = tmp_path / "scans"
+    base = ["--db", str(tmp_path / "index.db"), "--undo-dir", str(tmp_path / "undo"),
+            "--scans-dir", str(scans_dir)]
+
+    rc = main(base + ["scan", str(root), "-o", str(tmp_path / "report.html"), "--workers", "0"])
+
+    assert rc == 0
+    scan_dirs = list(scans_dir.iterdir())
+    assert len(scan_dirs) == 1
+    assert (scan_dirs[0] / "meta.json").exists()
+
+
+def test_scan_archival_failure_is_non_fatal(tmp_path, capsys):
+    """A disk-full/permissions problem while archiving must never make an
+    otherwise-successful scan look like it failed."""
+    root = tmp_path / "data"
+    root.mkdir()
+    (root / "a.txt").write_bytes(b"hello")
+    # a FILE where a directory is expected — mkdir(parents=True) inside
+    # record_scan will raise NotADirectoryError/FileExistsError
+    scans_dir_blocker = tmp_path / "scans_is_a_file"
+    scans_dir_blocker.write_bytes(b"not a directory")
+    report = tmp_path / "report.html"
+    base = ["--db", str(tmp_path / "index.db"), "--undo-dir", str(tmp_path / "undo"),
+            "--scans-dir", str(scans_dir_blocker)]
+
+    rc = main(base + ["scan", str(root), "-o", str(report), "--workers", "0"])
+
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "warning: could not archive" in err
+    assert (tmp_path / "report-images.html").exists()
+    assert (tmp_path / "report-other.html").exists()
+
+
+def _base_dirs(tmp_path):
+    return ["--db", str(tmp_path / "index.db"), "--undo-dir", str(tmp_path / "undo"),
+            "--scans-dir", str(tmp_path / "scans")]
+
+
+def test_history_lists_scans(tmp_path, capsys):
+    root = tmp_path / "data"
+    root.mkdir()
+    (root / "a.txt").write_bytes(b"hello")
+    base = _base_dirs(tmp_path)
+
+    rc = main(base + ["scan", str(root), "-o", str(tmp_path / "report.html"), "--workers", "0"])
+    assert rc == 0
+    capsys.readouterr()
+
+    rc = main(base + ["history"])
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    scan_dirs = list((tmp_path / "scans").iterdir())
+    assert scan_dirs[0].name in out
+
+
+def test_history_shows_one_entry_report_paths(tmp_path, capsys):
+    root = tmp_path / "data"
+    root.mkdir()
+    (root / "a.txt").write_bytes(b"hello")
+    base = _base_dirs(tmp_path)
+    main(base + ["scan", str(root), "-o", str(tmp_path / "report.html"), "--workers", "0"])
+    capsys.readouterr()
+    scan_id = next((tmp_path / "scans").iterdir()).name
+
+    rc = main(base + ["history", scan_id])
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert str((tmp_path / "scans" / scan_id / "report-images.html").resolve()) in out
+    assert str((tmp_path / "scans" / scan_id / "report-other.html").resolve()) in out
+
+
+def test_history_applied_flag_true_only_after_apply(tmp_path, capsys):
+    root = tmp_path / "data"
+    root.mkdir()
+    (root / "a.bin").write_bytes(b"dup" * 10)
+    (root / "b.bin").write_bytes(b"dup" * 10)
+    base = _base_dirs(tmp_path)
+    main(base + ["scan", str(root), "-o", str(tmp_path / "report.html"), "--workers", "0"])
+    capsys.readouterr()
+    scan_id = next((tmp_path / "scans").iterdir()).name
+
+    main(base + ["history"])
+    out_before = capsys.readouterr().out
+    assert "not applied" in out_before
+
+    other_text = (tmp_path / "report-other.html").read_text()
+    parser = InputCollector()
+    parser.feed(other_text)
+    sel = simulate_js_export(parser.inputs)
+    sel["scan_id"] = scan_id
+    sel_path = tmp_path / "selection-other.json"
+    sel_path.write_text(json.dumps(sel))
+    monkeypatch_input_trash = ["--trash-dir", str(tmp_path / "trash")]
+    import builtins
+    orig_input = builtins.input
+    builtins.input = lambda *_: "trash"
+    try:
+        rc = main(base + monkeypatch_input_trash + ["apply", str(sel_path)])
+    finally:
+        builtins.input = orig_input
+    assert rc == 0
+    capsys.readouterr()
+
+    main(base + ["history"])
+    out_after = capsys.readouterr().out
+    assert "applied" in out_after and "not applied" not in out_after
+
+
+def test_stats_text_reflects_undo_manifests(tmp_path, capsys):
+    root = tmp_path / "data"
+    root.mkdir()
+    (root / "a.bin").write_bytes(b"dup" * 10)
+    (root / "b.bin").write_bytes(b"dup" * 10)
+    base = _base_dirs(tmp_path)
+    main(base + ["scan", str(root), "-o", str(tmp_path / "report.html"), "--workers", "0"])
+    capsys.readouterr()
+    scan_id = next((tmp_path / "scans").iterdir()).name
+
+    other_text = (tmp_path / "report-other.html").read_text()
+    parser = InputCollector()
+    parser.feed(other_text)
+    sel = simulate_js_export(parser.inputs)
+    sel["scan_id"] = scan_id
+    sel_path = tmp_path / "selection-other.json"
+    sel_path.write_text(json.dumps(sel))
+    import builtins
+    orig_input = builtins.input
+    builtins.input = lambda *_: "trash"
+    try:
+        rc = main(base + ["--trash-dir", str(tmp_path / "trash"), "apply", str(sel_path)])
+    finally:
+        builtins.input = orig_input
+    assert rc == 0
+    capsys.readouterr()
+
+    rc = main(base + ["stats"])
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "1 applies" in out
+    assert "30 B reclaimed" in out  # two 30-byte dup files, one trashed
+
+
+def test_stats_html_writes_dashboard_default_and_explicit_path(tmp_path, capsys, monkeypatch):
+    import shutil
+
+    root = tmp_path / "data"
+    root.mkdir()
+    (root / "a.txt").write_bytes(b"hello")
+    base = _base_dirs(tmp_path)
+    main(base + ["scan", str(root), "-o", str(tmp_path / "report.html"), "--workers", "0"])
+    capsys.readouterr()
+    monkeypatch.chdir(tmp_path)
+
+    # A single scan renders a "not enough data for a trend yet" placeholder,
+    # not a chart (deliberate — see dashboard.py). Duplicate the one real
+    # ledger entry under a second scan_id to get 2 points without depending
+    # on real wall-clock time passing between two live `scan` calls (which
+    # could land in the same second and collide on one scan_id).
+    scans_dir = tmp_path / "scans"
+    first_dir = next(scans_dir.iterdir())
+    second_id = first_dir.name + "-2"
+    shutil.copytree(first_dir, scans_dir / second_id)
+    meta_path = scans_dir / second_id / "meta.json"
+    meta = json.loads(meta_path.read_text())
+    meta["scan_id"] = second_id
+    meta_path.write_text(json.dumps(meta))
+
+    rc = main(base + ["stats", "--html"])
+    assert rc == 0
+    default_path = tmp_path / "dupefinder-dashboard.html"
+    assert default_path.exists()
+    assert "<svg" in default_path.read_text()  # 2 scans -> the found-duplicates series has 2 points
+
+    explicit_path = tmp_path / "custom-dash.html"
+    rc = main(base + ["stats", "--html", str(explicit_path)])
+    assert rc == 0
+    assert explicit_path.exists()
+
+
+def test_stats_and_history_empty_state(tmp_path, capsys):
+    base = _base_dirs(tmp_path)
+
+    rc = main(base + ["stats"])
+    assert rc == 0
+    capsys.readouterr()
+
+    rc = main(base + ["history"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "no archived scans" in out

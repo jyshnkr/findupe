@@ -18,8 +18,17 @@ from .discover import discover
 from .grouping import build_families
 from .hashing import ensure_hashes, group_exact
 from .imaging import compute_perceptual
+from .dashboard import render_dashboard_html
+from .ledger import SCANS_DIR, list_scans, load_scan, record_scan
 from .models import FileRecord, ScanResult
 from .report import _is_image_family, generate_reports
+from .stats import (
+    aggregate_undo_totals,
+    applied_scan_ids,
+    duplicates_timeline,
+    reclaimed_timeline,
+    render_stats_text,
+)
 from .trash import UNDO_DIR, FakeTrasher, FinderTrasher, apply_selection, list_manifests, undo
 
 
@@ -108,6 +117,12 @@ def cmd_scan(args: argparse.Namespace) -> int:
           "        exported file, e.g.:\n"
           f"        dupefinder apply dupefinder-selection-{scan_id}-images.json\n"
           f"        dupefinder apply dupefinder-selection-{scan_id}-other.json")
+
+    try:
+        record_scan(scan, possible, img_families, other_families,
+                    (img_path, other_path), scans_dir=args.scans_dir)
+    except Exception as e:  # archival is a convenience on an already-succeeded scan
+        print(f"warning: could not archive this scan to history: {e}", file=sys.stderr)
     return 0
 
 
@@ -194,6 +209,53 @@ def cmd_undo(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_stats(args: argparse.Namespace) -> int:
+    records = list_scans(args.scans_dir)
+    totals = aggregate_undo_totals(args.undo_dir, args.scans_dir)
+    applied = applied_scan_ids(args.undo_dir)
+    print(render_stats_text(records, totals, applied))
+    if args.html is not None:
+        html_doc = render_dashboard_html(
+            records, totals, applied,
+            reclaimed_timeline(args.undo_dir), duplicates_timeline(records),
+        )
+        args.html.write_text(html_doc, encoding="utf-8")
+        print(f"dashboard: {args.html.resolve()}")
+    return 0
+
+
+def _find_scan(scan_id: str, scans_dir: Path):
+    """Prefix-tolerant lookup, mirroring cmd_undo's manifest matching."""
+    exact = load_scan(scan_id, scans_dir)
+    if exact is not None:
+        return exact
+    return next((r for r in list_scans(scans_dir) if r.scan_id.startswith(scan_id)), None)
+
+
+def cmd_history(args: argparse.Namespace) -> int:
+    if not args.scan_id:
+        records = list_scans(args.scans_dir)
+        if not records:
+            print("no archived scans")
+            return 0
+        applied = applied_scan_ids(args.undo_dir)
+        for r in records:
+            tag = "applied" if r.scan_id in applied else "not applied"
+            print(f"{r.scan_id}  {r.duplicate_families} families  "
+                  f"{_fmt_bytes(r.surplus_bytes)} reclaimable — [{tag}]")
+        return 0
+    rec = _find_scan(args.scan_id, args.scans_dir)
+    if rec is None:
+        print(f"no archived scan matching {args.scan_id!r}", file=sys.stderr)
+        return 2
+    applied = rec.scan_id in applied_scan_ids(args.undo_dir)
+    print(f"{rec.scan_id}  ({'applied' if applied else 'not applied'})")
+    print(f"  {rec.duplicate_families} duplicate families · {rec.possible_matches} possible matches")
+    for category, path in rec.report_paths.items():
+        print(f"  {category}: {path.resolve() if path else '(report copy missing)'}")
+    return 0
+
+
 def cmd_cache_clear(args: argparse.Namespace) -> int:
     with Cache(args.db) as cache:
         cache.clear()
@@ -208,6 +270,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--db", type=Path, default=DEFAULT_DB, help=argparse.SUPPRESS)
     parser.add_argument("--undo-dir", type=Path, default=UNDO_DIR, help=argparse.SUPPRESS)
+    parser.add_argument("--scans-dir", type=Path, default=SCANS_DIR, help=argparse.SUPPRESS)
     parser.add_argument("--trash-dir", help="use a plain directory instead of the macOS Trash")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -236,6 +299,16 @@ def main(argv: list[str] | None = None) -> int:
     cache_sub = p_cache.add_subparsers(dest="cache_command", required=True)
     p_clear = cache_sub.add_parser("clear")
     p_clear.set_defaults(func=cmd_cache_clear)
+
+    p_stats = sub.add_parser("stats", help="all-time totals across every scan and apply")
+    p_stats.add_argument("--html", nargs="?", const=Path("dupefinder-dashboard.html"),
+                         default=None, type=Path, metavar="PATH",
+                         help="also write an HTML dashboard (optional output path)")
+    p_stats.set_defaults(func=cmd_stats)
+
+    p_history = sub.add_parser("history", help="list archived scans, or show one by id")
+    p_history.add_argument("scan_id", nargs="?")
+    p_history.set_defaults(func=cmd_history)
 
     args = parser.parse_args(argv)
     try:
