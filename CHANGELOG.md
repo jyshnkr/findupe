@@ -6,6 +6,12 @@ automatically by [Commitizen](https://commitizen-tools.github.io/commitizen/)
 from [Conventional Commits](https://www.conventionalcommits.org/) on every
 qualifying push to `main` — the heading style below matches what it emits.
 
+## v0.3.0 (2026-07-13)
+
+### Feat
+
+- persistent scan history, stats totals, and an HTML dashboard
+
 ## v0.2.1 (2026-07-12)
 
 ### Fix
