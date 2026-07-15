@@ -1,9 +1,9 @@
 import os
 from pathlib import Path
 
-from dupefinder.cache import Cache
-from dupefinder.discover import discover
-from dupefinder.hashing import group_exact
+from findupe.cache import Cache
+from findupe.discover import discover
+from findupe.hashing import group_exact
 
 
 def scan(root) -> list:

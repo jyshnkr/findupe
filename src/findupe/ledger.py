@@ -26,9 +26,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .models import Family, ScanResult
+from .paths import resolve_data_home
 from .trash import _write_json_atomic
 
-SCANS_DIR = Path.home() / ".dupefinder" / "scans"
 SCAN_SCHEMA_VERSION = "1"
 
 
@@ -65,7 +65,7 @@ def record_scan(
     img_families: list[Family],
     other_families: list[Family],
     report_paths: tuple[Path, Path],
-    scans_dir: Path = SCANS_DIR,
+    scans_dir: Path | None = None,
 ) -> Path:
     """Archive one scan: copy both reports, then write meta.json last.
 
@@ -73,6 +73,7 @@ def record_scan(
     etc.) — the caller (cmd_scan) owns the best-effort catch; this stays
     strict so it's independently testable.
     """
+    scans_dir = scans_dir if scans_dir is not None else resolve_data_home() / "scans"
     scan_dir = scans_dir / scan.scan_id
     scan_dir.mkdir(parents=True, exist_ok=True)
 
@@ -142,15 +143,17 @@ def _read_record(scan_dir: Path) -> ScanRecord | None:
         return None
 
 
-def list_scans(scans_dir: Path = SCANS_DIR) -> list[ScanRecord]:
+def list_scans(scans_dir: Path | None = None) -> list[ScanRecord]:
     """All valid scan records, sorted by scan_id. Skips any directory whose
     meta.json is missing, unparseable, or schema-mismatched."""
+    scans_dir = scans_dir if scans_dir is not None else resolve_data_home() / "scans"
     if not scans_dir.is_dir():
         return []
     records = [_read_record(d) for d in scans_dir.iterdir() if d.is_dir()]
     return sorted((r for r in records if r is not None), key=lambda r: r.scan_id)
 
 
-def load_scan(scan_id: str, scans_dir: Path = SCANS_DIR) -> ScanRecord | None:
+def load_scan(scan_id: str, scans_dir: Path | None = None) -> ScanRecord | None:
     """One record by exact scan_id; None if absent or corrupt."""
+    scans_dir = scans_dir if scans_dir is not None else resolve_data_home() / "scans"
     return _read_record(scans_dir / scan_id)

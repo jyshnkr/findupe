@@ -35,6 +35,7 @@ h1, h2 { margin-bottom: .3rem; }
         border-radius: 8px; padding: .6rem 1rem; min-width: 9rem; }
 .stat .n { font-size: 1.4rem; font-weight: 700; display: block; }
 .stat .l { font-size: .75rem; opacity: .7; }
+.stat .sub { font-size: .7rem; opacity: .55; display: block; }
 .chart { margin: 1.5rem 0; }
 .chart svg { max-width: 100%; height: auto; }
 .axis { stroke: color-mix(in srgb, currentColor 25%, transparent); stroke-width: 1; }
@@ -111,14 +112,14 @@ def render_dashboard_html(
 <div class="totals">
   <div class="stat"><span class="n">{totals.scans_recorded}</span><span class="l">scans recorded</span></div>
   <div class="stat"><span class="n">{totals.files_trashed_net}</span><span class="l">files currently trashed</span></div>
-  <div class="stat"><span class="n">{html.escape(_fmt_bytes(totals.bytes_reclaimed_net))}</span><span class="l">reclaimed (net of restores)</span></div>
+  <div class="stat"><span class="n">{html.escape(_fmt_bytes(totals.bytes_reclaimed_net))}</span><span class="l">moved to Trash (net of restores)</span><span class="sub">frees space once you empty the Trash</span></div>
   <div class="stat"><span class="n">{totals.duplicates_found_total}</span><span class="l">surplus files flagged across {totals.scans_recorded} scans</span></div>
 </div>
 <p class="caveat">"Flagged" totals are cumulative across scans, not deduplicated — a
 still-unresolved duplicate found again in a later scan counts again.</p>
 """
 
-    reclaimed_chart = _svg_line_chart(reclaimed_series, "Space reclaimed over time (actual)", _fmt_bytes)
+    reclaimed_chart = _svg_line_chart(reclaimed_series, "Space moved to Trash over time", _fmt_bytes)
     dup_chart = _svg_line_chart(dup_series, "Duplicates found per scan (not reclaimed)", str)
 
     rows = []
@@ -131,20 +132,25 @@ still-unresolved duplicate found again in a later scan counts again.</p>
             f'<td><span class="badge {badge_class}">{tag}</span></td></tr>'
         )
     table_html = (
-        "<table><thead><tr><th>scan</th><th>families</th><th>reclaimable</th>"
+        "<table><thead><tr><th>scan</th><th>families</th><th>reclaimable (flagged)</th>"
         "<th>status</th></tr></thead><tbody>"
         + ("".join(rows) if rows else '<tr><td colspan="4">no archived scans</td></tr>')
         + "</tbody></table>"
     )
 
     return f"""<!doctype html>
-<html><head><meta charset="utf-8"><title>dupefinder dashboard</title>
+<html><head><meta charset="utf-8"><title>findupe dashboard</title>
 <style>{_CSS}</style></head>
 <body>
-<h1>dupefinder — history dashboard</h1>
+<h1>findupe — history dashboard</h1>
 {stats_html}
 {reclaimed_chart}
 {dup_chart}
 <h2>Scan history</h2>
 {table_html}
+<p class="caveat">"Reclaimable (flagged)" means findupe found a surplus copy — it only
+frees space once you delete it <em>and</em> empty the Trash. findupe moves files to
+the Trash; it does not measure disk space actually freed, and can't: APFS clones are
+indistinguishable from true copies without deep extent inspection, so trashing a clone
+reclaims no space even after the Trash is emptied.</p>
 </body></html>"""

@@ -1,4 +1,4 @@
-# dupefinder
+# findupe
 
 Safe duplicate finder & reviewer for macOS. Finds **exact duplicates** (any file type,
 zero false positives) and **same-photo-different-format duplicates** (HEIC / JPEG / RAW,
@@ -17,18 +17,18 @@ since perceptual matching never applies to non-images). Review and apply each
 independently.
 
 ```
-1. uv run dupefinder scan ~/Pictures/inbox "/Volumes/Extreme SSD/photos"
+1. uv run findupe scan ~/Pictures/inbox "/Volumes/Extreme SSD/photos"
 2. open report-images.html   # photo/image duplicates — thumbnails, adjust checkboxes
    open report-other.html    # everything else — plain checkbox + path + size rows
 3.                           # click "Export selection" on each ->
-                              #   dupefinder-selection-<id>-images.json
-                              #   dupefinder-selection-<id>-other.json
-4. uv run dupefinder apply dupefinder-selection-<id>-images.json --dry-run   # preview
-   uv run dupefinder apply dupefinder-selection-<id>-other.json  --dry-run   # preview
-5. uv run dupefinder apply dupefinder-selection-<id>-images.json            # typed confirmation
-   uv run dupefinder apply dupefinder-selection-<id>-other.json             # typed confirmation
-6. uv run dupefinder undo                                             # list restore points
-   uv run dupefinder undo <manifest>                                  # put everything back
+                              #   findupe-selection-<id>-images.json
+                              #   findupe-selection-<id>-other.json
+4. uv run findupe apply findupe-selection-<id>-images.json --dry-run   # preview
+   uv run findupe apply findupe-selection-<id>-other.json  --dry-run   # preview
+5. uv run findupe apply findupe-selection-<id>-images.json            # typed confirmation
+   uv run findupe apply findupe-selection-<id>-other.json             # typed confirmation
+6. uv run findupe undo                                             # list restore points
+   uv run findupe undo <manifest>                                  # put everything back
 ```
 
 ## How it decides two files are "the same"
@@ -84,22 +84,40 @@ informational "sibling", never as a deletion candidate.
 Known caveat: APFS **clones** are indistinguishable from true copies without deep extent
 inspection — trashing a clone reclaims no space (the report footer says so too).
 
-## Install / dev
+## Install
 
-Requires macOS + [uv](https://docs.astral.sh/uv/). Python 3.13 and all dependencies
+Requires macOS.
+
+```
+pipx install findupe
+# or
+uv tool install findupe
+```
+
+Then `findupe --help`. Running on a non-macOS platform refuses immediately with a
+clear error — the Trash integration (Finder/AppleScript) and clone-detection notes
+are macOS/APFS-specific.
+
+## Dev setup
+
+Requires macOS + [uv](https://docs.astral.sh/uv/). Python 3.11+ and all dependencies
 (Pillow, pillow-heif, imagehash, rawpy, pybktree) are resolved automatically.
 
 ```
 uv sync
-uv run pytest          # 88 tests
-uv run dupefinder --help
+uv run pytest          # 132 tests
+uv run findupe --help
 ```
 
 First `apply` may trigger a one-time macOS permission prompt ("Terminal wants to control
 Finder") — that's the Trash integration. If you deny it, apply aborts safely.
 
-The hash cache lives in `~/.dupefinder/index.db` (re-scans only hash new/changed files);
-undo manifests in `~/.dupefinder/undo/`. `dupefinder cache clear` resets the cache.
+All state lives under `~/.findupe/`: the hash cache (`index.db`, re-scans only hash
+new/changed files), scan history (`scans/`), and undo manifests (`undo/`).
+`findupe cache clear` resets the hash cache only. If you have an existing
+`~/.dupefinder/` from before the `findupe` rename, it's moved into place
+automatically, once, the first time you run any command that doesn't override
+`--db`/`--undo-dir`/`--scans-dir`.
 
 ## Commit conventions & releases
 
@@ -109,11 +127,12 @@ for everything with no release impact. A qualifying push is picked up automatica
 [Commitizen](https://commitizen-tools.github.io/commitizen/) — it computes the next
 [semantic version](https://semver.org/) (`feat` → minor, `fix`/`perf`/`refactor` → patch,
 `feat!`/`BREAKING CHANGE` → major), updates `CHANGELOG.md`, tags the release, and a GitHub
-Action turns that tag into a [GitHub Release](https://github.com/jyshnkr/dupefinder/releases)
+Action turns that tag into a [GitHub Release](https://github.com/jyshnkr/findupe/releases)
 with no manual step. See `.github/workflows/release.yml`.
 
 ## Deliberately out of scope (v1)
 
 APFS clone detection via extent inspection · scanning inside Photos/Lightroom libraries ·
 OCR screenshot discrimination · config file · GUI · scheduling. See
-`docs/superpowers/specs/2026-07-09-dupefinder-design.md` for the full design + rationale.
+`docs/superpowers/specs/2026-07-09-dupefinder-design.md` for the full design + rationale
+(written before the project was renamed from `dupefinder` to `findupe`).

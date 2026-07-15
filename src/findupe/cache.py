@@ -14,8 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .models import FileRecord, norm_path
-
-DEFAULT_DB = Path.home() / ".dupefinder" / "index.db"
+from .paths import resolve_data_home
 
 _SCHEMA_VERSION = 2  # v2: volume_uuid keying + capture_subsec
 
@@ -62,7 +61,8 @@ class CachedInfo:
 
 
 class Cache:
-    def __init__(self, db_path: Path = DEFAULT_DB) -> None:
+    def __init__(self, db_path: Path | None = None) -> None:
+        db_path = db_path if db_path is not None else resolve_data_home() / "index.db"
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self.db_path = db_path
         self.conn = sqlite3.connect(db_path)

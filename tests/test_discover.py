@@ -1,8 +1,8 @@
 import os
 from pathlib import Path
 
-from dupefinder.discover import discover, is_dataless, volume_root
-from dupefinder.models import canonical_format
+from findupe.discover import discover, is_dataless, volume_root
+from findupe.models import canonical_format
 
 
 def paths(result):

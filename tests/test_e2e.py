@@ -8,7 +8,7 @@ import io
 
 from PIL import Image
 
-from dupefinder.cli import main
+from findupe.cli import main
 from conftest import gradient_image
 from test_report import InputCollector, simulate_js_export
 
@@ -53,10 +53,12 @@ def test_full_round_trip(tmp_path, monkeypatch, capsys):
     db = tmp_path / "index.db"
     undo_dir = tmp_path / "undo"
     trash_dir = tmp_path / "trash"
+    scans_dir = tmp_path / "scans"
     report = tmp_path / "report.html"
     img_report = tmp_path / "report-images.html"
     other_report = tmp_path / "report-other.html"
-    base = ["--db", str(db), "--undo-dir", str(undo_dir), "--trash-dir", str(trash_dir)]
+    base = ["--db", str(db), "--undo-dir", str(undo_dir), "--trash-dir", str(trash_dir),
+            "--scans-dir", str(scans_dir)]
 
     # -- scan: now writes two category-scoped reports from one scan
     rc = main(base + ["scan", str(root), "-o", str(report), "--workers", "0"])
@@ -137,10 +139,21 @@ def test_full_round_trip(tmp_path, monkeypatch, capsys):
     assert rc == 0
 
 
+def test_refuses_to_run_on_non_macos(monkeypatch, capsys):
+    import sys
+
+    monkeypatch.setattr(sys, "platform", "linux")
+
+    rc = main(["stats"])
+
+    assert rc == 2
+    assert "requires macOS" in capsys.readouterr().err
+
+
 def test_apply_refuses_tampered_selection(tmp_path, capsys):
     keep = tmp_path / "k.bin"
     keep.write_bytes(b"x" * 10)
-    from dupefinder.hashing import full_hash
+    from findupe.hashing import full_hash
     e = {"path": str(keep), "size": 10, "blake2b": full_hash(keep),
          "family": "f", "format": "bin", "companions": []}
     sel = {"schema_version": "1", "scan_id": "t", "delete": [e], "keep": [e]}
@@ -190,7 +203,7 @@ def test_scan_surfaces_hash_errors_in_terminal_and_report(tmp_path, capsys):
     undo_dir = tmp_path / "undo"
     report = tmp_path / "report.html"
 
-    rc = main(["--db", str(db), "--undo-dir", str(undo_dir),
+    rc = main(["--db", str(db), "--undo-dir", str(undo_dir), "--scans-dir", str(tmp_path / "scans"),
                "scan", str(root), "-o", str(report), "--workers", "0"])
 
     assert rc == 0
@@ -214,7 +227,7 @@ def test_scan_lists_refused_libraries_in_full(tmp_path, capsys):
     undo_dir = tmp_path / "undo"
     report = tmp_path / "report.html"
 
-    rc = main(["--db", str(db), "--undo-dir", str(undo_dir),
+    rc = main(["--db", str(db), "--undo-dir", str(undo_dir), "--scans-dir", str(tmp_path / "scans"),
                "scan", str(root), "-o", str(report), "--workers", "0"])
 
     assert rc == 0
@@ -237,7 +250,7 @@ def test_scan_prints_read_error_count_with_pointer(tmp_path, capsys):
         db = tmp_path / "index.db"
         undo_dir = tmp_path / "undo"
         report = tmp_path / "report.html"
-        rc = main(["--db", str(db), "--undo-dir", str(undo_dir),
+        rc = main(["--db", str(db), "--undo-dir", str(undo_dir), "--scans-dir", str(tmp_path / "scans"),
                    "scan", str(root), "-o", str(report), "--workers", "0"])
         assert rc == 0
         out = capsys.readouterr().out
@@ -418,7 +431,7 @@ def test_stats_text_reflects_undo_manifests(tmp_path, capsys):
     assert rc == 0
     out = capsys.readouterr().out
     assert "1 applies" in out
-    assert "30 B reclaimed" in out  # two 30-byte dup files, one trashed
+    assert "30 B moved to Trash" in out  # two 30-byte dup files, one trashed
 
 
 def test_stats_html_writes_dashboard_default_and_explicit_path(tmp_path, capsys, monkeypatch):
@@ -448,7 +461,7 @@ def test_stats_html_writes_dashboard_default_and_explicit_path(tmp_path, capsys,
 
     rc = main(base + ["stats", "--html"])
     assert rc == 0
-    default_path = tmp_path / "dupefinder-dashboard.html"
+    default_path = tmp_path / "findupe-dashboard.html"
     assert default_path.exists()
     assert "<svg" in default_path.read_text()  # 2 scans -> the found-duplicates series has 2 points
 

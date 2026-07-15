@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from dupefinder.grouping import build_families, choose_keeper
-from dupefinder.models import FileRecord
+from findupe.grouping import build_families, choose_keeper
+from findupe.models import FileRecord
 
 
 def mk(

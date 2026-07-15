@@ -211,7 +211,7 @@ function exportSelection() {
   const blob = new Blob([JSON.stringify(payload, null, 1)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'dupefinder-selection-' + SCAN_ID + '-' + CATEGORY + '.json';
+  a.download = 'findupe-selection-' + SCAN_ID + '-' + CATEGORY + '.json';
   a.click();
 }
 function setAll(state) {
@@ -274,7 +274,7 @@ def _write_report(
     visual = [f for f in families if f.kind == "visual"]
     total_surplus = sum(f.surplus_count for f in families)
     total_bytes = sum(f.surplus_bytes for f in families)
-    sel_name = f"dupefinder-selection-{scan.scan_id}-{category}.json"
+    sel_name = f"findupe-selection-{scan.scan_id}-{category}.json"
 
     def section(sec_id: str, title: str, fams: list[Family], checkable: bool, hint: str) -> str:
         if not fams:
@@ -295,13 +295,13 @@ def _write_report(
     doc = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>dupefinder — {html.escape(category)} — {html.escape(scan.scan_id)}</title>
+<title>findupe — {html.escape(category)} — {html.escape(scan.scan_id)}</title>
 <style>{_CSS}</style>
 <script>{js}</script>
 </head><body>
-<h1>dupefinder report — {html.escape(category)}</h1>
+<h1>findupe report — {html.escape(category)}</h1>
 <p>scan <code>{html.escape(scan.scan_id)}</code> — roots: {", ".join(f"<code>{html.escape(str(r))}</code>" for r in scan.roots)}<br>
-{len(families)} duplicate families · {total_surplus} surplus files · {_fmt_bytes(total_bytes)} reclaimable if all suggestions accepted</p>
+{len(families)} duplicate families · {total_surplus} surplus files · {_fmt_bytes(total_bytes)} reclaimable (flagged) if all suggestions are accepted and the Trash is emptied</p>
 <div id="bar">
   <strong id="count"></strong>
   <button onclick="setAll(true)">Check all suggested</button>
@@ -309,8 +309,9 @@ def _write_report(
   <button onclick="exportSelection()" style="font-weight:700">⬇ Export selection</button>
 </div>
 <p>Review below, then export your selection and run
-<code>dupefinder apply {sel_name}</code>.
-Files go to the macOS <b>Trash</b> (recoverable), never deleted directly.
+<code>findupe apply {sel_name}</code>.
+Files go to the macOS <b>Trash</b> (recoverable), never deleted directly — this only
+frees space once you empty the Trash.
 Note: APFS clones are indistinguishable from true copies — trashing a clone reclaims no space.</p>
 {empty_note}
 {section("exact-sec", "Exact duplicates", exact, True,

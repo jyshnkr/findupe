@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
 
-from dupefinder.hashing import full_hash
-from dupefinder.trash import (
+from findupe.hashing import full_hash
+from findupe.trash import (
     FakeTrasher,
     FinderTrasher,
     apply_selection,
@@ -202,7 +202,7 @@ def test_same_second_applies_get_distinct_manifests(tmp_path, monkeypatch):
     second get distinct manifest files instead of one silently overwriting
     the other. The e2e test exercises this in real (timing-dependent) usage;
     this test freezes the clock so the guarantee is checked deterministically."""
-    import dupefinder.trash as trash_mod
+    import findupe.trash as trash_mod
     from datetime import datetime, timezone
 
     base = datetime(2026, 7, 11, 12, 0, 0, tzinfo=timezone.utc)

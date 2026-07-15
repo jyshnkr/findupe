@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from dupefinder.discover import discover
-from dupefinder.imaging import compute_perceptual, hamming, load_image, thumbnail_b64
+from findupe.discover import discover
+from findupe.imaging import compute_perceptual, hamming, load_image, thumbnail_b64
 from conftest import gradient_image
 
 REAL_CR3 = Path("/Users/jayashankarmangina/Documents/DCIMZ_2/ARJUN3/JSCL2022.CR3")
@@ -75,7 +75,7 @@ def test_capture_key_from_exif(tmp_path):
     ifd[0x8827] = 400
     ifd[0x9291] = "42"  # SubSecTimeOriginal
     save(img, tmp_path / "shot.jpg", "JPEG", exif=exif)
-    from dupefinder.imaging import capture_key
+    from findupe.imaging import capture_key
     key, subsec = capture_key(load_image(tmp_path / "shot.jpg"))
     assert key is not None and key.startswith("2026:07:09 12:00:00")
     assert "400" in key
@@ -103,6 +103,6 @@ def test_process_pool_path(tmp_path):
 def test_real_cr3_preview_and_capture_key():
     img = load_image(REAL_CR3)
     assert img.width > 1000
-    from dupefinder.imaging import capture_key
+    from findupe.imaging import capture_key
     key, _subsec = capture_key(img)
     assert key  # Canon embeds shot EXIF in the preview (LibRaw-rewritten header)

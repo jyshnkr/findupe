@@ -1,4 +1,4 @@
-"""Core data types shared by every dupefinder module."""
+"""Core data types shared by every findupe module."""
 
 from __future__ import annotations
 

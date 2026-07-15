@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from dupefinder.cli import _collect_hash_errors
+from findupe.cli import _collect_hash_errors
 from test_grouping import mk
 
 

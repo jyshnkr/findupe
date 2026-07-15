@@ -8,4 +8,4 @@ dist/
 
 # generated scan output — never committed
 report*.html
-dupefinder-selection-*.json
+findupe-selection-*.json

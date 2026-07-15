@@ -1,4 +1,4 @@
-"""dupefinder CLI: scan / apply / undo / cache clear.
+"""findupe CLI: scan / apply / undo / cache clear.
 
 scan never deletes; apply only acts on a reviewed selection JSON and asks for a
 typed confirmation; undo restores from the Trash. See README for the workflow.
@@ -13,13 +13,13 @@ from datetime import datetime
 from pathlib import Path
 
 from . import grouping
-from .cache import DEFAULT_DB, Cache
+from .cache import Cache
 from .discover import discover
 from .grouping import build_families
 from .hashing import ensure_hashes, group_exact
 from .imaging import compute_perceptual
 from .dashboard import render_dashboard_html
-from .ledger import SCANS_DIR, list_scans, load_scan, record_scan
+from .ledger import list_scans, load_scan, record_scan
 from .models import FileRecord, ScanResult
 from .report import _is_image_family, generate_reports
 from .stats import (
@@ -29,7 +29,7 @@ from .stats import (
     reclaimed_timeline,
     render_stats_text,
 )
-from .trash import UNDO_DIR, FakeTrasher, FinderTrasher, apply_selection, list_manifests, undo
+from .trash import FakeTrasher, FinderTrasher, apply_selection, list_manifests, undo
 
 
 def _fmt_bytes(n: float) -> str:
@@ -115,8 +115,8 @@ def cmd_scan(args: argparse.Namespace) -> int:
     _cat_summary("other ", other_families, other_path)
     print("next:   open each report, review, Export selection, then run apply once per\n"
           "        exported file, e.g.:\n"
-          f"        dupefinder apply dupefinder-selection-{scan_id}-images.json\n"
-          f"        dupefinder apply dupefinder-selection-{scan_id}-other.json")
+          f"        findupe apply findupe-selection-{scan_id}-images.json\n"
+          f"        findupe apply findupe-selection-{scan_id}-other.json")
 
     try:
         record_scan(scan, possible, img_families, other_families,
@@ -177,7 +177,7 @@ def cmd_apply(args: argparse.Namespace) -> int:
           f"{len(plan.skipped)} skipped (see above)")
     if manifest_path:
         print(f"undo manifest: {manifest_path}")
-        print(f"to restore:    dupefinder undo {manifest_path.name}")
+        print(f"to restore:    findupe undo {manifest_path.name}")
     return 0
 
 
@@ -259,18 +259,28 @@ def cmd_history(args: argparse.Namespace) -> int:
 def cmd_cache_clear(args: argparse.Namespace) -> int:
     with Cache(args.db) as cache:
         cache.clear()
-    print(f"cache cleared: {args.db}")
+        db_path = cache.db_path
+    print(f"cache cleared: {db_path}")
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
+    if sys.platform != "darwin":
+        print("findupe requires macOS — it relies on Finder/AppleScript for Trash "
+              "integration and APFS-specific behavior.", file=sys.stderr)
+        return 2
     parser = argparse.ArgumentParser(
-        prog="dupefinder",
+        prog="findupe",
         description="Safe duplicate finder: scan -> review HTML report -> apply -> (undo)",
     )
-    parser.add_argument("--db", type=Path, default=DEFAULT_DB, help=argparse.SUPPRESS)
-    parser.add_argument("--undo-dir", type=Path, default=UNDO_DIR, help=argparse.SUPPRESS)
-    parser.add_argument("--scans-dir", type=Path, default=SCANS_DIR, help=argparse.SUPPRESS)
+    # default=None, not a pre-resolved path: each is resolved lazily inside the
+    # function that actually needs it, only when still None, so passing an
+    # explicit flag here genuinely bypasses the one-time
+    # ~/.dupefinder -> ~/.findupe migration check — it never fires just
+    # because argparse filled in a default.
+    parser.add_argument("--db", type=Path, default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--undo-dir", type=Path, default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--scans-dir", type=Path, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--trash-dir", help="use a plain directory instead of the macOS Trash")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -301,7 +311,7 @@ def main(argv: list[str] | None = None) -> int:
     p_clear.set_defaults(func=cmd_cache_clear)
 
     p_stats = sub.add_parser("stats", help="all-time totals across every scan and apply")
-    p_stats.add_argument("--html", nargs="?", const=Path("dupefinder-dashboard.html"),
+    p_stats.add_argument("--html", nargs="?", const=Path("findupe-dashboard.html"),
                          default=None, type=Path, metavar="PATH",
                          help="also write an HTML dashboard (optional output path)")
     p_stats.set_defaults(func=cmd_stats)

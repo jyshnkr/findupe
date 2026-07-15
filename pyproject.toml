@@ -1,10 +1,22 @@
 [project]
-name = "dupefinder"
+name = "findupe"
 version = "0.3.0"
 description = "Safe duplicate finder & reviewer for macOS — exact + perceptual image matching, review-first deletion to Trash"
 readme = "README.md"
-requires-python = ">=3.13"
-license = { text = "MIT" }
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "JayaShankar Mangina", email = "jyshnkr.ai@gmail.com" }]
+keywords = ["duplicates", "deduplication", "photos", "images", "macos", "cli", "perceptual-hash"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: Python :: 3",
+    "Topic :: Utilities",
+    "Topic :: Multimedia :: Graphics",
+]
 dependencies = [
     "pillow>=12.0",
     "pillow-heif>=1.4",
@@ -13,8 +25,13 @@ dependencies = [
     "pybktree>=1.1",
 ]
 
+[project.urls]
+Homepage = "https://github.com/jyshnkr/findupe"
+Repository = "https://github.com/jyshnkr/findupe"
+Changelog = "https://github.com/jyshnkr/findupe/blob/main/CHANGELOG.md"
+
 [project.scripts]
-dupefinder = "dupefinder.cli:main"
+findupe = "findupe.cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8.0", "commitizen>=4"]
@@ -24,7 +41,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/dupefinder"]
+packages = ["src/findupe"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

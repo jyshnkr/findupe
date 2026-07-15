@@ -2,9 +2,9 @@ import json
 from html.parser import HTMLParser
 from pathlib import Path
 
-from dupefinder.grouping import build_families
-from dupefinder.models import ScanResult
-from dupefinder.report import _write_report, category_output_paths, generate_reports
+from findupe.grouping import build_families
+from findupe.models import ScanResult
+from findupe.report import _write_report, category_output_paths, generate_reports
 from test_grouping import PH, mk
 
 
@@ -221,7 +221,7 @@ def test_other_report_has_no_visual_or_possible_sections(tmp_path):
     assert 'id="visual-sec"' not in text
     assert 'id="possible-sec"' not in text
     assert 'id="exact-sec"' in text
-    assert "dupefinder-selection-testscan-other.json" in text
+    assert "findupe-selection-testscan-other.json" in text
     assert '"other"' in text  # CATEGORY const reaches the JS
 
 
