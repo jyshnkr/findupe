@@ -91,7 +91,7 @@ informational "sibling", never as a deletion candidate.
 
 Requires macOS.
 
-```
+```sh
 pipx install findupe
 # or
 uv tool install findupe
@@ -106,7 +106,7 @@ are macOS/APFS-specific.
 Requires macOS + [uv](https://docs.astral.sh/uv/). Python 3.11+ and all dependencies
 (Pillow, pillow-heif, imagehash, rawpy, pybktree) are resolved automatically.
 
-```
+```sh
 uv sync
 uv run pytest          # 145 tests
 uv run findupe --help

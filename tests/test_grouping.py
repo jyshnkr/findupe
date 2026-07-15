@@ -274,5 +274,5 @@ def test_visual_only_cluster_member_never_probed_for_clone_status(tmp_path):
     families, _ = build_families([keeper, sibling], {})
 
     (fam,) = families
-    (cluster,) = clusters_of(fam, "jpeg")
+    (_cluster,) = clusters_of(fam, "jpeg")
     assert sibling.is_clone is False

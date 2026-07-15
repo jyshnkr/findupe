@@ -101,7 +101,8 @@ def render_stats_text(records: list[ScanRecord], totals: Totals, applied_ids: se
         f"{totals.scans_recorded} scans recorded · {totals.applies} applies",
         f"{totals.files_trashed_net} files currently trashed · "
         f"{_fmt_bytes(totals.bytes_reclaimed_net)} moved to Trash (net of restores) — "
-        "frees space once you empty the Trash",
+        "may free space once you empty the Trash (less for any APFS clone, which "
+        "shares its keeper's storage)",
         f"{totals.files_restored} restored · {totals.files_failed} failed",
         f"{totals.duplicates_found_total} surplus files flagged across "
         f"{totals.scans_recorded} scans — reclaimable only if deleted AND the Trash is "

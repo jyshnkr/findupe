@@ -32,7 +32,6 @@ Fails safe in BOTH directions, and the two directions are not symmetric:
 
 from __future__ import annotations
 
-import fcntl
 import os
 import struct
 from pathlib import Path
@@ -44,6 +43,10 @@ _STRUCT_FMT = "<Iqq"  # struct log2phys, #pragma pack(4): uint, off_t, off_t
 def _extent_map(path: Path) -> list[tuple[int, int]] | None:
     """[(device_offset, length), ...] covering the whole file. None on any
     error, or if the kernel reports a suspicious 0 device offset."""
+    import fcntl  # Unix-only; imported lazily so this module stays importable
+    # on Windows — cli.py's sys.platform guard runs before any code path that
+    # would actually reach this function, but module-level imports elsewhere
+    # in the chain (cli -> grouping -> clones) happen before that guard does.
     try:
         fd = os.open(path, os.O_RDONLY)
     except OSError:

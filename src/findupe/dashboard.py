@@ -112,7 +112,7 @@ def render_dashboard_html(
 <div class="totals">
   <div class="stat"><span class="n">{totals.scans_recorded}</span><span class="l">scans recorded</span></div>
   <div class="stat"><span class="n">{totals.files_trashed_net}</span><span class="l">files currently trashed</span></div>
-  <div class="stat"><span class="n">{html.escape(_fmt_bytes(totals.bytes_reclaimed_net))}</span><span class="l">moved to Trash (net of restores)</span><span class="sub">frees space once you empty the Trash</span></div>
+  <div class="stat"><span class="n">{html.escape(_fmt_bytes(totals.bytes_reclaimed_net))}</span><span class="l">moved to Trash (net of restores)</span><span class="sub">may free space once emptied — see caveat below</span></div>
   <div class="stat"><span class="n">{totals.duplicates_found_total}</span><span class="l">surplus files flagged across {totals.scans_recorded} scans</span></div>
 </div>
 <p class="caveat">"Flagged" totals are cumulative across scans, not deduplicated — a

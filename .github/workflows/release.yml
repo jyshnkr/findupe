@@ -16,13 +16,16 @@ jobs:
       version: ${{ steps.cz.outputs.version }}
       previous_version: ${{ steps.cz.outputs.previous_version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0 # commitizen needs full history since the last tag
           token: ${{ secrets.GITHUB_TOKEN }}
+          # NOT persist-credentials: false here (unlike `build` below) —
+          # commitizen-action's push: true default relies on the credential
+          # actions/checkout leaves in .git/config to push the bump commit + tag.
 
       - id: cz
-        uses: commitizen-tools/commitizen-action@0.27.1
+        uses: commitizen-tools/commitizen-action@338bbd841b75aaee6bf5340e1fa12f6ab58ff9ff # 0.27.1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           changelog_increment_filename: _release_notes.md
@@ -33,7 +36,7 @@ jobs:
         # no-increment `cz bump` exits via the action's default no_raise=21.
         # Comparing against `previous_version` is the real bump signal.
         if: ${{ steps.cz.outputs.version != steps.cz.outputs.previous_version }}
-        uses: softprops/action-gh-release@v3.0.1
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           tag_name: v${{ steps.cz.outputs.version }}
           body_path: _release_notes.md
@@ -51,7 +54,7 @@ jobs:
     permissions:
       contents: read # only checks out code + builds; no git writes, unlike `release`
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           # commitizen-action already pushed the bump commit + tag to main
           # inside the `release` job (push: true is its default) — a plain
@@ -59,12 +62,15 @@ jobs:
           # triggered this run, not the bumped pyproject.toml `uv build`
           # needs to read. Check out the tag the release job just created.
           ref: v${{ needs.release.outputs.version }}
+          # this job only reads + builds, never pushes — no reason for uv
+          # build or its dependencies to have a retained git credential.
+          persist-credentials: false
 
-      - uses: astral-sh/setup-uv@v8.3.2
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
 
       - run: uv build
 
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dist
           path: dist/
@@ -79,7 +85,7 @@ jobs:
     permissions:
       id-token: write # mandatory for PyPI Trusted Publishing (OIDC); scoped to this job only
     steps:
-      - uses: actions/download-artifact@v8.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: dist
           path: dist/

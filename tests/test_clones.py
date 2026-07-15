@@ -6,13 +6,12 @@ whatever filesystem tmp_path lands on (APFS on any supported macOS setup).
 
 import os
 import subprocess
-
-import pytest
+import sys
 
 from findupe.clones import KeeperExtents, shares_physical_extents
 
 
-def _write(path, size=2 * 1024 * 1024):
+def _write(path, size=2 * 1024 * 1024) -> None:
     path.write_bytes(os.urandom(size))
 
 
@@ -89,3 +88,18 @@ def test_empty_file_never_flagged_as_clone(tmp_path):
     b.write_bytes(b"")
 
     assert shares_physical_extents(a, b) is False
+
+
+def test_clones_module_importable_without_fcntl(monkeypatch):
+    """fcntl is Unix-only (absent on Windows). cli.py's sys.platform guard
+    can't protect an import that happens before main() even runs: the
+    entry point does `from . import grouping` at module scope, which
+    imports `.clones` at module scope too — so fcntl must only be imported
+    lazily inside the functions that actually call it, never at module
+    level here, or Windows users get a raw ImportError instead of the
+    intended "findupe requires macOS" refusal."""
+    monkeypatch.setitem(sys.modules, "fcntl", None)
+    for name in ("findupe.clones", "findupe.grouping", "findupe.cli"):
+        monkeypatch.delitem(sys.modules, name, raising=False)
+
+    import findupe.cli  # noqa: F401 -- must not raise ImportError

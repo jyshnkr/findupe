@@ -72,6 +72,7 @@ def test_concurrent_first_use_does_not_crash(tmp_path, monkeypatch):
     FileNotFoundError, as expected.)
     """
     import os
+    import typing
 
     legacy = tmp_path / ".dupefinder"
     new = tmp_path / ".findupe"
@@ -80,7 +81,7 @@ def test_concurrent_first_use_does_not_crash(tmp_path, monkeypatch):
 
     real_os_rename = os.rename
 
-    def losers_rename_call(src, dst):
+    def losers_rename_call(src, dst) -> typing.NoReturn:
         real_os_rename(src, dst)  # the winning process's migration, completing first
         raise FileNotFoundError(2, "No such file or directory")  # this call's own view: gone
 
