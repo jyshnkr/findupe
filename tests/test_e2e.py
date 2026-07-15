@@ -215,6 +215,35 @@ def test_scan_surfaces_hash_errors_in_terminal_and_report(tmp_path, capsys):
     assert "Unreadable/undecodable during hashing" in img_text
 
 
+def test_scan_detects_real_apfs_clone_and_excludes_it_from_reclaimable(tmp_path, capsys):
+    """End-to-end: a real `cp -c` clone in the scanned tree must show up as a
+    surplus candidate (still a real duplicate) but contribute 0 bytes to the
+    reclaimable totals — exercises the full wiring from clones.py through
+    grouping.py into the terminal summary and the report, not just the probe
+    in isolation."""
+    import subprocess
+
+    root = tmp_path / "data"
+    root.mkdir()
+    original = root / "original.bin"
+    clone = root / "original_clone.bin"
+    original.write_bytes(os.urandom(2 * 1024 * 1024))
+    subprocess.run(["cp", "-c", str(original), str(clone)], check=True)
+    report = tmp_path / "report.html"
+
+    rc = main(["--db", str(tmp_path / "index.db"), "--undo-dir", str(tmp_path / "undo"),
+               "--scans-dir", str(tmp_path / "scans"),
+               "scan", str(root), "-o", str(report), "--workers", "0"])
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "1 families" in out
+    assert "0 B reclaimable" in out  # the clone contributes nothing
+    other_text = (tmp_path / "report-other.html").read_text()
+    assert 'class="badge clone"' in other_text
+    assert "0 B freed" in other_text
+
+
 def test_scan_lists_refused_libraries_in_full(tmp_path, capsys):
     """High-signal, usually-short lists (refused libraries) print in full on the
     terminal rather than being buried as a bare count."""

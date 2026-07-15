@@ -150,7 +150,11 @@ still-unresolved duplicate found again in a later scan counts again.</p>
 {table_html}
 <p class="caveat">"Reclaimable (flagged)" means findupe found a surplus copy — it only
 frees space once you delete it <em>and</em> empty the Trash. findupe moves files to
-the Trash; it does not measure disk space actually freed, and can't: APFS clones are
-indistinguishable from true copies without deep extent inspection, so trashing a clone
-reclaims no space even after the Trash is emptied.</p>
+the Trash; it does not measure disk space actually freed. It does detect APFS clones
+(files sharing physical storage with their keeper) where possible, and excludes them
+from "reclaimable" — but "moved to Trash" above still counts a clone's full size,
+since it genuinely was moved, even though trashing it alone won't free space. Clone
+detection isn't foolproof (some volumes/setups can't be probed), and it only checks
+each candidate against its own keeper, not against other candidates — an undetected
+or out-of-scope clone reclaims no space either way, same as before this existed.</p>
 </body></html>"""

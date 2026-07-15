@@ -57,12 +57,19 @@ def _file_row(
         badges.append('<span class="badge info" title="Related file — not a copy of anything; never deletable here">sibling</span>')
     if rec.cloud_synced:
         badges.append('<span class="badge cloud" title="In a cloud-synced folder: deleting propagates to your other devices">☁ synced</span>')
+    if rec.is_clone:
+        badges.append('<span class="badge clone" title="Shares physical storage with the keeper (APFS clone) — trashing this frees 0 bytes, even after the Trash is emptied">⧉ clone — 0 B freed</span>')
     for c in rec.companions:
         badges.append(f'<span class="badge comp" title="Trashed together with this file">+ {html.escape(c.path.name)}</span>')
 
+    # data-reclaim is what trashing this file would actually free — 0 for a
+    # clone — kept SEPARATE from data-size (the file's real size, which apply
+    # re-verifies against the live file; conflating the two would make apply
+    # wrongly treat a clone as "changed since scan" and skip it).
+    reclaim = 0 if rec.is_clone else rec.size
     common = (
         f'data-family="{family.family_id}" data-format="{fmt}" data-cluster="{cluster_id}" '
-        f'data-path="{p}" data-size="{rec.size}" data-hash="{h}"'
+        f'data-path="{p}" data-size="{rec.size}" data-reclaim="{reclaim}" data-hash="{h}"'
     )
     if role == "keeper":
         control = (
@@ -167,6 +174,7 @@ body { margin: 2rem auto; max-width: 70rem; padding: 0 1rem; }
 .badge.comp { background: #6a1b9a33; color: #8e24aa; }
 .badge.warn { background: #e6510033; color: #e65100; }
 .badge.info { background: #45455533; color: #78788c; }
+.badge.clone { background: #ef6c0033; color: #ef6c00; }
 #bar { position: sticky; top: 0; background: Canvas; border-bottom: 2px solid #2e7d32;
        padding: .8rem 0; display: flex; gap: 1rem; align-items: center; z-index: 5; }
 button { font: inherit; padding: .4rem .9rem; border-radius: 6px; cursor: pointer; }
@@ -184,7 +192,9 @@ function fmtBytes(n) {
 }
 function updateCounter() {
   const checked = [...document.querySelectorAll('input.cand:checked')];
-  const bytes = checked.reduce((s, cb) => s + (+cb.dataset.size), 0);
+  // data-reclaim, not data-size: a checked clone contributes 0 here even
+  // though its own file size is nonzero — trashing it frees no space.
+  const bytes = checked.reduce((s, cb) => s + (+cb.dataset.reclaim), 0);
   document.getElementById('count').textContent =
     checked.length + ' files selected — ' + fmtBytes(bytes) + ' reclaimable';
 }
@@ -312,7 +322,15 @@ def _write_report(
 <code>findupe apply {sel_name}</code>.
 Files go to the macOS <b>Trash</b> (recoverable), never deleted directly — this only
 frees space once you empty the Trash.
-Note: APFS clones are indistinguishable from true copies — trashing a clone reclaims no space.</p>
+Note: files marked <span class="badge clone">⧉ clone — 0 B freed</span> share physical
+storage with their keeper (an APFS clone) — trashing them frees no space, so they're
+excluded from the reclaimable total above (though still checkable, if you want them
+gone for organizational reasons). This detection isn't foolproof: on a volume or setup
+where it can't run, an undetected clone still reclaims no space when trashed, same as
+before — this note is the fallback for that case. Also: if two of your OWN checked
+candidates turn out to be clones of <em>each other</em> rather than of the keeper,
+their shared bytes aren't excluded above (only clone-of-keeper is checked) — trashing
+just one won't free that shared space either.</p>
 {empty_note}
 {section("exact-sec", "Exact duplicates", exact, True,
          "Byte-identical files. The suggested keeper is pre-selected to survive; checked copies go to the Trash.")}

@@ -1,5 +1,8 @@
-"""Grouping is pure logic — records are constructed directly, no files needed."""
+"""Grouping is pure logic — records are constructed directly, no files needed
+(except the clone-detection tests below, which need a real file on disk to
+clone with `cp -c`)."""
 
+import subprocess
 from pathlib import Path
 
 from findupe.grouping import build_families, choose_keeper
@@ -218,3 +221,58 @@ def test_no_duplicates_no_families():
     b = mk("/p/b.jpg", phash=~PH & ((1 << 64) - 1), dhash=PH)
     families, possible = build_families([a, b], {})
     assert families == [] and possible == []
+
+
+def test_clone_of_keeper_is_excluded_from_surplus_bytes(tmp_path):
+    keeper_path = tmp_path / "keeper.bin"
+    clone_path = tmp_path / "clone.bin"
+    keeper_path.write_bytes(b"x" * (2 * 1024 * 1024))
+    subprocess.run(["cp", "-c", str(keeper_path), str(clone_path)], check=True)
+
+    keeper = mk(str(keeper_path), size=2 * 1024 * 1024, exact_hash="h1", mtime=1)
+    clone = mk(str(clone_path), size=2 * 1024 * 1024, exact_hash="h1", mtime=2)
+    families, _ = build_families([keeper, clone], {"h1": [keeper, clone]})
+
+    (fam,) = families
+    assert fam.surplus_count == 1  # a clone is still a real surplus file...
+    assert fam.surplus_bytes == 0  # ...but frees nothing, so it's excluded here
+    (cluster,) = clusters_of(fam, "bin")
+    assert cluster.surplus == [clone]
+    assert clone.is_clone is True
+    assert keeper.is_clone is False
+
+
+def test_independent_copy_of_keeper_is_not_flagged_as_clone(tmp_path):
+    keeper_path = tmp_path / "keeper.bin"
+    copy_path = tmp_path / "copy_of_keeper.bin"
+    keeper_path.write_bytes(b"y" * (2 * 1024 * 1024))
+    subprocess.run(["cp", str(keeper_path), str(copy_path)], check=True)
+
+    keeper = mk(str(keeper_path), size=2 * 1024 * 1024, exact_hash="h2", mtime=1)
+    copy = mk(str(copy_path), size=2 * 1024 * 1024, exact_hash="h2", mtime=2)
+    families, _ = build_families([keeper, copy], {"h2": [keeper, copy]})
+
+    (fam,) = families
+    assert fam.surplus_bytes == 2 * 1024 * 1024  # a real copy: fully reclaimable
+    assert copy.is_clone is False
+
+
+def test_visual_only_cluster_member_never_probed_for_clone_status(tmp_path):
+    """A file linked to the keeper only by a strong-visual edge (re-encode) is
+    never byte-identical to it, so it must never even be probed, let alone
+    flagged — regardless of what's actually on disk at its path."""
+    keeper_path = tmp_path / "keeper.jpg"
+    sibling_path = tmp_path / "sibling.jpg"
+    keeper_path.write_bytes(b"a" * 1000)
+    # a real clone of an unrelated file, at the visual sibling's path — if the
+    # code incorrectly probed non-exact-hash members, this would wrongly
+    # flag a clone relationship that has nothing to do with `keeper.jpg`
+    subprocess.run(["cp", "-c", str(keeper_path), str(sibling_path)], check=True)
+
+    keeper = mk(str(keeper_path), size=1000, phash=PH, dhash=PH, mtime=1)
+    sibling = mk(str(sibling_path), size=1000, phash=PH ^ 1, dhash=PH, mtime=2)  # visual-only
+    families, _ = build_families([keeper, sibling], {})
+
+    (fam,) = families
+    (cluster,) = clusters_of(fam, "jpeg")
+    assert sibling.is_clone is False

@@ -80,9 +80,12 @@ informational "sibling", never as a deletion candidate.
   ("possible-burst") or near-uniform images ("low-entropy") require deliberate clicks.
 - Files in iCloud/Dropbox-synced folders carry a ☁ badge — deleting them propagates to
   your other devices.
-
-Known caveat: APFS **clones** are indistinguishable from true copies without deep extent
-inspection — trashing a clone reclaims no space (the report footer says so too).
+- **APFS clones are detected where possible** (`⧉ clone — 0 B freed` badge, via physical
+  extent comparison — `F_LOG2PHYS_EXT`) and excluded from the reclaimable total, since
+  trashing one frees nothing while its keeper survives. Detection isn't foolproof (some
+  volumes/setups can't be probed, and only clone-of-keeper is checked, not
+  clone-of-another-candidate) — an undetected clone still reclaims no space when
+  trashed, same as before this existed (the report footer explains this too).
 
 ## Install
 
@@ -105,7 +108,7 @@ Requires macOS + [uv](https://docs.astral.sh/uv/). Python 3.11+ and all dependen
 
 ```
 uv sync
-uv run pytest          # 132 tests
+uv run pytest          # 145 tests
 uv run findupe --help
 ```
 
@@ -132,7 +135,8 @@ with no manual step. See `.github/workflows/release.yml`.
 
 ## Deliberately out of scope (v1)
 
-APFS clone detection via extent inspection · scanning inside Photos/Lightroom libraries ·
-OCR screenshot discrimination · config file · GUI · scheduling. See
-`docs/superpowers/specs/2026-07-09-dupefinder-design.md` for the full design + rationale
-(written before the project was renamed from `dupefinder` to `findupe`).
+Scanning inside Photos/Lightroom libraries · OCR screenshot discrimination · config
+file · GUI · scheduling. (APFS clone detection shipped — see Safety model above.) See
+`docs/superpowers/specs/2026-07-09-dupefinder-design.md` for the full original design +
+rationale (written before the project was renamed from `dupefinder` to `findupe`, and
+before clone detection existed).

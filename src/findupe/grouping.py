@@ -26,6 +26,7 @@ import re
 
 import pybktree
 
+from .clones import KeeperExtents
 from .imaging import hamming
 from .models import RAW_EXTS, Cluster, Family, FileRecord, FormatPartition
 
@@ -250,11 +251,24 @@ def _make_family(
             if len(group) < 2:
                 continue  # singleton: informational member, nothing deletable
             keeper = choose_keeper(group)
+            surplus = [f for f in group if f is not keeper]
+            # Clone detection only ever applies to a surplus file that's BYTE-
+            # IDENTICAL to the keeper (exact_hash match) — a cluster can also
+            # contain files linked only by a strong-visual edge (re-encodes),
+            # which by definition can never be an APFS clone of anything.
+            exact_surplus = [
+                f for f in surplus
+                if f.exact_hash and keeper.exact_hash and f.exact_hash == keeper.exact_hash
+            ]
+            if exact_surplus:
+                keeper_extents = KeeperExtents(keeper.path)
+                for f in exact_surplus:
+                    f.is_clone = keeper_extents.shares_with(f.path)
             clusters.append(Cluster(
                 cluster_id=f"c{cluster_n:04d}",
                 files=group,
                 keeper=keeper,
-                surplus=[f for f in group if f is not keeper],
+                surplus=surplus,
             ))
             cluster_n += 1
         partitions.append(FormatPartition(format=fmt, files=files, clusters=clusters))
