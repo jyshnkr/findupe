@@ -215,15 +215,24 @@ _LIVE_PHOTO_MTIME_WINDOW_NS = 10 * 1_000_000_000
 def _attach_companions(result: DiscoverResult) -> None:
     """Sidecars (XMP/AAE/THM) and Live Photo MOVs become companions of their primary.
 
-    Pairing rule: same directory + same stem (case-insensitive). MOV/MP4 pairs only
-    with a HEIC/JPEG primary whose mtime is within 10s (Live Photo); otherwise it
-    stays a normal record. Companions are full FileRecords so their size and hash
-    travel through the selection JSON and undo manifest for verification.
+    Pairing rule: same directory (exact) + same stem (case-insensitive). MOV/MP4
+    pairs only with a HEIC/JPEG primary whose mtime is within 10s (Live Photo);
+    otherwise it stays a normal record. Companions are full FileRecords so their
+    size and hash travel through the selection JSON and undo manifest for
+    verification.
+
+    The parent directory is NOT case-folded, only the stem is: on a
+    case-sensitive APFS volume, `/Photos/A` and `/Photos/a` are genuinely
+    distinct directories, and folding them together could attach a sidecar
+    from one to an unrelated primary in the other, trashing it incorrectly.
+    On the far more common case-insensitive-APFS default, the filesystem
+    itself never presents two such directories in the same scan, so this
+    costs nothing there.
     """
     by_stem: dict[tuple[str, str], list[FileRecord]] = {}
     for rec in result.records:
         by_stem.setdefault(
-            (norm_path(rec.path.parent).casefold(), rec.path.stem.casefold()), []
+            (norm_path(rec.path.parent), rec.path.stem.casefold()), []
         ).append(rec)
 
     companion_paths: set[Path] = set()

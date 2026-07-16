@@ -12,14 +12,20 @@ jobs:
     # skip the tool's own bump commit — avoids re-running on the push it makes
     if: ${{ !startsWith(github.event.head_commit.message, 'bump:') }}
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.cz.outputs.version }}
+      previous_version: ${{ steps.cz.outputs.previous_version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0 # commitizen needs full history since the last tag
           token: ${{ secrets.GITHUB_TOKEN }}
+          # NOT persist-credentials: false here (unlike `build` below) —
+          # commitizen-action's push: true default relies on the credential
+          # actions/checkout leaves in .git/config to push the bump commit + tag.
 
       - id: cz
-        uses: commitizen-tools/commitizen-action@0.27.1
+        uses: commitizen-tools/commitizen-action@338bbd841b75aaee6bf5340e1fa12f6ab58ff9ff # 0.27.1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           changelog_increment_filename: _release_notes.md
@@ -30,9 +36,62 @@ jobs:
         # no-increment `cz bump` exits via the action's default no_raise=21.
         # Comparing against `previous_version` is the real bump signal.
         if: ${{ steps.cz.outputs.version != steps.cz.outputs.previous_version }}
-        uses: softprops/action-gh-release@v3.0.1
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           tag_name: v${{ steps.cz.outputs.version }}
           body_path: _release_notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Build and publish are separate jobs, and publish gets NO checkout — per
+  # the publish action's own README: separating build from publish means
+  # anything maliciously injected into the build environment can't ride
+  # along into the job that holds PyPI's OIDC trust.
+  build:
+    needs: release
+    if: ${{ needs.release.outputs.version != needs.release.outputs.previous_version }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # only checks out code + builds; no git writes, unlike `release`
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          # commitizen-action already pushed the bump commit + tag to main
+          # inside the `release` job (push: true is its default) — a plain
+          # checkout here would still resolve to the pre-bump commit that
+          # triggered this run, not the bumped pyproject.toml `uv build`
+          # needs to read. Check out the tag the release job just created.
+          ref: v${{ needs.release.outputs.version }}
+          # this job only reads + builds, never pushes — no reason for uv
+          # build or its dependencies to have a retained git credential.
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+
+      - run: uv build
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: [release, build]
+    if: ${{ needs.release.outputs.version != needs.release.outputs.previous_version }}
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/findupe
+    permissions:
+      id-token: write # mandatory for PyPI Trusted Publishing (OIDC); scoped to this job only
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        # Pinned to the commit tagged v1.14.0 (not the release/v1 branch
+        # pointer, which moves) — this job carries Trusted Publishing
+        # authority, so it gets stricter pinning than the rest of this file.
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0

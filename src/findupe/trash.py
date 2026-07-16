@@ -27,8 +27,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .hashing import full_hash
+from .paths import resolve_data_home
 
-UNDO_DIR = Path.home() / ".dupefinder" / "undo"
 _BATCH = 100
 
 
@@ -266,9 +266,10 @@ def apply_selection(
     selection: dict,
     trasher,
     dry_run: bool = False,
-    undo_dir: Path = UNDO_DIR,
+    undo_dir: Path | None = None,
 ) -> tuple[ApplyPlan, Path | None]:
     """Verify and execute a selection. Returns (plan, undo_manifest_path)."""
+    undo_dir = undo_dir if undo_dir is not None else resolve_data_home() / "undo"
     plan = build_apply_plan(selection)
     if plan.fatal or dry_run or not plan.to_trash:
         return plan, None
@@ -342,7 +343,8 @@ def _volume_of(path: Path) -> str:
 
 # ---------------------------------------------------------------- undo
 
-def list_manifests(undo_dir: Path = UNDO_DIR) -> list[Path]:
+def list_manifests(undo_dir: Path | None = None) -> list[Path]:
+    undo_dir = undo_dir if undo_dir is not None else resolve_data_home() / "undo"
     if not undo_dir.is_dir():
         return []
     return sorted(undo_dir.glob("*.json"))
@@ -351,7 +353,7 @@ def list_manifests(undo_dir: Path = UNDO_DIR) -> list[Path]:
 def undo(
     manifest_path: Path,
     trasher=None,
-    undo_dir: Path = UNDO_DIR,
+    undo_dir: Path | None = None,
 ) -> list[tuple[str, str]]:
     """Restore trashed files to their original paths. Returns [(path, outcome)]."""
     trasher = trasher or FinderTrasher()

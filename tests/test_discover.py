@@ -1,8 +1,9 @@
 import os
 from pathlib import Path
 
-from dupefinder.discover import discover, is_dataless, volume_root
-from dupefinder.models import canonical_format
+from findupe.discover import DiscoverResult, _attach_companions, discover, is_dataless, volume_root
+from findupe.models import canonical_format
+from test_grouping import mk
 
 
 def paths(result):
@@ -82,6 +83,22 @@ def test_mov_far_in_time_is_not_a_live_photo(tree):
     recs = {r.path.name: r for r in res.records}
     assert set(recs) == {"vacation.jpg", "vacation.mov"}
     assert recs["vacation.jpg"].companions == []
+
+
+def test_companions_never_cross_case_sensitive_directories():
+    """On a case-sensitive APFS volume, /Photos/A and /Photos/a are genuinely
+    distinct directories. Only the stem may be case-folded when pairing
+    sidecars/Live-Photo videos to a primary — folding the parent directory
+    too would attach a sidecar from one directory to an unrelated primary in
+    the other, and it would then get trashed along with that wrong primary."""
+    primary = mk("/Photos/A/vacation.CR3")
+    other_dir_sidecar = mk("/Photos/a/vacation.xmp")
+    result = DiscoverResult(records=[primary, other_dir_sidecar])
+
+    _attach_companions(result)
+
+    assert primary.companions == []
+    assert other_dir_sidecar in result.records  # stays its own ordinary record
 
 
 def test_exclude_globs(tree):

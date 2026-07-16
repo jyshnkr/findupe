@@ -1,4 +1,4 @@
-"""Core data types shared by every dupefinder module."""
+"""Core data types shared by every findupe module."""
 
 from __future__ import annotations
 
@@ -68,6 +68,9 @@ class FileRecord:
     # size + hash all the way into the selection JSON and undo manifest
     companions: list["FileRecord"] = field(default_factory=list)
     hardlink_of: Path | None = None     # same (dev, inode) as an earlier record
+    is_clone: bool = False              # shares physical storage with its cluster's
+                                         # keeper (APFS clone) — trashing it frees 0 bytes.
+                                         # Set later, at cluster-build time, not here.
 
     def __post_init__(self) -> None:
         self.format = canonical_format(self.path)
@@ -108,7 +111,14 @@ class Family:
 
     @property
     def surplus_bytes(self) -> int:
-        return sum(f.size for p in self.partitions for c in p.clusters for f in c.surplus)
+        """Bytes that trashing every surplus file would actually free — excludes
+        any file flagged `is_clone` (it shares physical storage with the keeper,
+        so trashing it alone frees nothing). `surplus_count` still counts it: a
+        clone is still a real surplus copy someone may want gone."""
+        return sum(
+            f.size for p in self.partitions for c in p.clusters for f in c.surplus
+            if not f.is_clone
+        )
 
     @property
     def surplus_count(self) -> int:

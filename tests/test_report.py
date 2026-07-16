@@ -2,9 +2,9 @@ import json
 from html.parser import HTMLParser
 from pathlib import Path
 
-from dupefinder.grouping import build_families
-from dupefinder.models import ScanResult
-from dupefinder.report import _write_report, category_output_paths, generate_reports
+from findupe.grouping import build_families
+from findupe.models import ScanResult
+from findupe.report import _write_report, category_output_paths, generate_reports
 from test_grouping import PH, mk
 
 
@@ -101,6 +101,46 @@ def test_possible_section_has_no_checkboxes(tmp_path):
     text, inputs = render(families, possible, tmp_path)
     assert [i for i in inputs if i["_section"] == "possible-sec"] == []
     assert "review only" in text
+
+
+def test_clone_candidate_shows_badge_and_zero_reclaim(tmp_path):
+    import subprocess
+
+    keeper_path = tmp_path / "keeper.bin"
+    clone_path = tmp_path / "clone.bin"
+    keeper_path.write_bytes(b"x" * (2 * 1024 * 1024))
+    subprocess.run(["cp", "-c", str(keeper_path), str(clone_path)], check=True)
+
+    keeper = mk(str(keeper_path), size=2 * 1024 * 1024, exact_hash="hclone", mtime=1)
+    clone = mk(str(clone_path), size=2 * 1024 * 1024, exact_hash="hclone", mtime=2)
+    families, possible = build_families([keeper, clone], {"hclone": [keeper, clone]})
+    text, inputs = render(families, possible, tmp_path)
+
+    cand = next(i for i in inputs if i.get("class") == "cand")
+    assert cand["data-size"] == str(2 * 1024 * 1024)  # real size — apply must re-verify this
+    assert cand["data-reclaim"] == "0"                # but frees nothing
+    # the static footer caveat mentions the clone badge once as an example —
+    # a real clone row renders a second, actual occurrence of that badge
+    assert text.count('class="badge clone"') >= 2
+
+
+def test_independent_copy_candidate_keeps_full_reclaim(tmp_path):
+    import subprocess
+
+    keeper_path = tmp_path / "keeper.bin"
+    copy_path = tmp_path / "copy_of_keeper.bin"
+    keeper_path.write_bytes(b"y" * (2 * 1024 * 1024))
+    subprocess.run(["cp", str(keeper_path), str(copy_path)], check=True)
+
+    keeper = mk(str(keeper_path), size=2 * 1024 * 1024, exact_hash="hcopy", mtime=1)
+    copy = mk(str(copy_path), size=2 * 1024 * 1024, exact_hash="hcopy", mtime=2)
+    families, possible = build_families([keeper, copy], {"hcopy": [keeper, copy]})
+    text, inputs = render(families, possible, tmp_path)
+
+    cand = next(i for i in inputs if i.get("class") == "cand")
+    assert cand["data-reclaim"] == cand["data-size"] == str(2 * 1024 * 1024)
+    # only the static footer caveat's example badge appears — no real one
+    assert text.count('class="badge clone"') == 1
 
 
 def test_cross_format_sibling_renders_as_info_row(tmp_path):
@@ -221,7 +261,7 @@ def test_other_report_has_no_visual_or_possible_sections(tmp_path):
     assert 'id="visual-sec"' not in text
     assert 'id="possible-sec"' not in text
     assert 'id="exact-sec"' in text
-    assert "dupefinder-selection-testscan-other.json" in text
+    assert "findupe-selection-testscan-other.json" in text
     assert '"other"' in text  # CATEGORY const reaches the JS
 
 

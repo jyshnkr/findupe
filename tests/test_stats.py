@@ -17,28 +17,28 @@ def entry(path="/p/a.bin", size=1000, status="trashed", companion=False) -> dict
 
 
 def test_aggregate_undo_totals_counts_trashed_bytes(tmp_path):
-    from dupefinder.stats import aggregate_undo_totals
+    from findupe.stats import aggregate_undo_totals
 
     undo_dir = tmp_path / "undo"
     write_manifest(undo_dir, "m1.json", "s1", "2026-07-01T00:00:00+00:00", [
         entry("/p/a.bin", 1000), entry("/p/b.bin", 2000),
     ])
 
-    totals = aggregate_undo_totals(undo_dir)
+    totals = aggregate_undo_totals(undo_dir, tmp_path / "scans")
 
     assert totals.files_trashed_net == 2
     assert totals.bytes_reclaimed_net == 3000
 
 
 def test_restored_not_counted_as_net_reclaimed(tmp_path):
-    from dupefinder.stats import aggregate_undo_totals
+    from findupe.stats import aggregate_undo_totals
 
     undo_dir = tmp_path / "undo"
     write_manifest(undo_dir, "m1.json", "s1", "2026-07-01T00:00:00+00:00", [
         entry("/p/a.bin", 1000, status="restored"),
     ])
 
-    totals = aggregate_undo_totals(undo_dir)
+    totals = aggregate_undo_totals(undo_dir, tmp_path / "scans")
 
     assert totals.files_restored == 1
     assert totals.bytes_reclaimed_net == 0
@@ -46,28 +46,28 @@ def test_restored_not_counted_as_net_reclaimed(tmp_path):
 
 
 def test_companion_entries_count_toward_reclaimed(tmp_path):
-    from dupefinder.stats import aggregate_undo_totals
+    from findupe.stats import aggregate_undo_totals
 
     undo_dir = tmp_path / "undo"
     write_manifest(undo_dir, "m1.json", "s1", "2026-07-01T00:00:00+00:00", [
         entry("/p/a.xmp", 500, companion=True),
     ])
 
-    totals = aggregate_undo_totals(undo_dir)
+    totals = aggregate_undo_totals(undo_dir, tmp_path / "scans")
 
     assert totals.files_trashed_net == 1
     assert totals.bytes_reclaimed_net == 500
 
 
 def test_failed_entries_excluded_from_reclaimed(tmp_path):
-    from dupefinder.stats import aggregate_undo_totals
+    from findupe.stats import aggregate_undo_totals
 
     undo_dir = tmp_path / "undo"
     write_manifest(undo_dir, "m1.json", "s1", "2026-07-01T00:00:00+00:00", [
         entry("/p/a.bin", 1000, status="failed: OSError"),
     ])
 
-    totals = aggregate_undo_totals(undo_dir)
+    totals = aggregate_undo_totals(undo_dir, tmp_path / "scans")
 
     assert totals.files_failed == 1
     assert totals.bytes_reclaimed_net == 0
@@ -75,9 +75,9 @@ def test_failed_entries_excluded_from_reclaimed(tmp_path):
 
 
 def test_stats_totals_empty_state(tmp_path):
-    from dupefinder.stats import aggregate_undo_totals
+    from findupe.stats import aggregate_undo_totals
 
-    totals = aggregate_undo_totals(tmp_path / "undo")
+    totals = aggregate_undo_totals(tmp_path / "undo", tmp_path / "scans")
 
     assert totals.files_trashed_net == 0
     assert totals.bytes_reclaimed_net == 0
@@ -85,7 +85,7 @@ def test_stats_totals_empty_state(tmp_path):
 
 
 def test_applied_scan_ids_from_manifests(tmp_path):
-    from dupefinder.stats import applied_scan_ids
+    from findupe.stats import applied_scan_ids
 
     undo_dir = tmp_path / "undo"
     write_manifest(undo_dir, "m1.json", "scan-a", "2026-07-01T00:00:00+00:00", [entry()])
@@ -95,7 +95,7 @@ def test_applied_scan_ids_from_manifests(tmp_path):
 
 
 def test_reclaimed_timeline_buckets_by_apply_date(tmp_path):
-    from dupefinder.stats import reclaimed_timeline
+    from findupe.stats import reclaimed_timeline
 
     undo_dir = tmp_path / "undo"
     write_manifest(undo_dir, "m1.json", "s1", "2026-07-01T10:00:00+00:00",
@@ -111,8 +111,8 @@ def test_reclaimed_timeline_buckets_by_apply_date(tmp_path):
 
 
 def test_duplicates_timeline_one_point_per_scan():
-    from dupefinder.ledger import ScanRecord
-    from dupefinder.stats import duplicates_timeline
+    from findupe.ledger import ScanRecord
+    from findupe.stats import duplicates_timeline
 
     records = [
         ScanRecord(scan_id="a", created_at="2026-07-01T10:00:00+00:00", roots=[],
@@ -127,7 +127,7 @@ def test_duplicates_timeline_one_point_per_scan():
 
 
 def test_render_stats_text_contains_totals(tmp_path):
-    from dupefinder.stats import Totals, render_stats_text
+    from findupe.stats import Totals, render_stats_text
 
     totals = Totals(scans_recorded=3, applies=2, files_trashed_net=5,
                      bytes_reclaimed_net=123456, files_restored=1, files_failed=0,
@@ -138,3 +138,20 @@ def test_render_stats_text_contains_totals(tmp_path):
     assert "5" in text and "123456" not in text  # bytes rendered human-readable, not raw
     assert "3" in text  # scans_recorded
     assert "40" in text and "across" in text  # cumulative-across-scans framing
+
+
+def test_render_stats_text_labels_trash_moves_not_reclaimed_space(tmp_path):
+    """A trashed file isn't freed space until the Trash is emptied — the text
+    must say so, not claim 'reclaimed' for something merely moved."""
+    from findupe.stats import Totals, render_stats_text
+
+    totals = Totals(scans_recorded=1, applies=1, files_trashed_net=5,
+                     bytes_reclaimed_net=123456, files_restored=0, files_failed=0,
+                     duplicates_found_total=10)
+
+    text = render_stats_text([], totals, set())
+
+    assert "moved to Trash" in text
+    assert "reclaimed (net of restores)" not in text  # the old, dishonest label
+    assert "empty the Trash" in text
+    assert "cannot measure disk space actually freed" in text

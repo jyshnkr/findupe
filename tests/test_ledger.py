@@ -1,9 +1,9 @@
 import json
 from pathlib import Path
 
-from dupefinder.grouping import build_families
-from dupefinder.models import ScanResult
-from dupefinder.report import _is_image_family
+from findupe.grouping import build_families
+from findupe.models import ScanResult
+from findupe.report import _is_image_family
 from test_grouping import mk
 
 
@@ -31,7 +31,7 @@ def _write_reports(tmp_path):
 
 
 def test_record_scan_writes_meta_and_copies_both_reports(tmp_path):
-    from dupefinder.ledger import record_scan
+    from findupe.ledger import record_scan
 
     scan, possible, img_families, other_families = _scan_with_one_family(tmp_path)
     img_path, other_path = _write_reports(tmp_path)
@@ -48,7 +48,7 @@ def test_record_scan_writes_meta_and_copies_both_reports(tmp_path):
 
 
 def test_record_scan_meta_fields(tmp_path):
-    from dupefinder.ledger import record_scan
+    from findupe.ledger import record_scan
 
     scan, possible, img_families, other_families = _scan_with_one_family(tmp_path)
     report_paths = _write_reports(tmp_path)
@@ -76,7 +76,7 @@ def test_record_scan_meta_fields(tmp_path):
 def test_record_scan_writes_meta_last_so_a_copy_failure_leaves_no_meta(tmp_path):
     """A crash/failure mid-archive must leave no meta.json — that's the signal
     list_scans uses to skip a partial directory."""
-    from dupefinder.ledger import record_scan
+    from findupe.ledger import record_scan
 
     scan, possible, img_families, other_families = _scan_with_one_family(tmp_path)
     img_path, other_path = _write_reports(tmp_path)
@@ -94,7 +94,7 @@ def test_record_scan_writes_meta_last_so_a_copy_failure_leaves_no_meta(tmp_path)
 
 
 def test_list_scans_sorted_by_scan_id(tmp_path):
-    from dupefinder.ledger import list_scans, record_scan
+    from findupe.ledger import list_scans, record_scan
 
     scans_dir = tmp_path / "scans"
     for scan_id in ("20260712-180000", "20260712-160000", "20260712-170000"):
@@ -110,7 +110,7 @@ def test_list_scans_sorted_by_scan_id(tmp_path):
 
 
 def test_list_scans_skips_corrupt_dir_without_crashing(tmp_path):
-    from dupefinder.ledger import SCAN_SCHEMA_VERSION, list_scans, record_scan
+    from findupe.ledger import SCAN_SCHEMA_VERSION, list_scans, record_scan
 
     scans_dir = tmp_path / "scans"
     scan, possible, imgf, otherf = _scan_with_one_family(tmp_path, scan_id="20260712-160000")
@@ -139,7 +139,7 @@ def test_list_scans_skips_dir_with_schema_valid_but_missing_field(tmp_path):
     missing a required field (e.g. truncated write despite the atomic-write
     guard) must be skipped like any other corrupt record, not crash the
     whole listing with an uncaught KeyError."""
-    from dupefinder.ledger import SCAN_SCHEMA_VERSION, list_scans, record_scan
+    from findupe.ledger import SCAN_SCHEMA_VERSION, list_scans, record_scan
 
     scans_dir = tmp_path / "scans"
     scan, possible, imgf, otherf = _scan_with_one_family(tmp_path, scan_id="20260712-160000")
@@ -157,13 +157,13 @@ def test_list_scans_skips_dir_with_schema_valid_but_missing_field(tmp_path):
 
 
 def test_load_scan_returns_none_for_missing(tmp_path):
-    from dupefinder.ledger import load_scan
+    from findupe.ledger import load_scan
 
     assert load_scan("does-not-exist", scans_dir=tmp_path / "scans") is None
 
 
 def test_read_record_reports_missing_report_as_none(tmp_path):
-    from dupefinder.ledger import load_scan, record_scan
+    from findupe.ledger import load_scan, record_scan
 
     scans_dir = tmp_path / "scans"
     scan, possible, imgf, otherf = _scan_with_one_family(tmp_path)
