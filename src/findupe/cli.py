@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
+import subprocess
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -123,6 +126,53 @@ def cmd_scan(args: argparse.Namespace) -> int:
                     (img_path, other_path), scans_dir=args.scans_dir)
     except Exception as e:  # archival is a convenience on an already-succeeded scan
         print(f"warning: could not archive this scan to history: {e}", file=sys.stderr)
+    return 0
+
+
+def _demo_root() -> Path:
+    """Locate the bundled examples/ dataset: wheel-installed package data first
+    (real installs), falling back to the repo-root examples/ for editable/dev
+    installs, where force-include never ran."""
+    try:
+        from importlib.resources import files
+
+        packaged = files("findupe") / "examples"
+        if packaged.is_dir():
+            return Path(str(packaged))
+    except (ModuleNotFoundError, FileNotFoundError):
+        pass
+    dev_path = Path(__file__).resolve().parents[2] / "examples"
+    if dev_path.is_dir():
+        return dev_path
+    raise FileNotFoundError(
+        "bundled examples/ dataset not found — reinstall findupe or run from a full checkout"
+    )
+
+
+def _open_in_finder(path: Path) -> None:
+    subprocess.run(["open", str(path)], check=False)
+
+
+def cmd_demo(args: argparse.Namespace) -> int:
+    src = _demo_root()
+    scratch = Path(args.demo_dir) if args.demo_dir else Path(tempfile.mkdtemp(prefix="findupe-demo-"))
+    dest = scratch / "examples"
+    shutil.copytree(src, dest, dirs_exist_ok=True)
+    print(f"--demo: copied the bundled sample photos to {dest}")
+
+    args.paths = [str(dest / "inbox"), str(dest / "backup")]
+    args.exclude = []
+    args.materialize = False
+    args.threshold = grouping.THRESHOLD_POSSIBLE
+    args.output = str(scratch / "report.html")
+    args.workers = 0
+    rc = cmd_scan(args)
+    if rc != 0:
+        return rc
+
+    report_path = scratch / "report-images.html"
+    print(f"opening {report_path.name} …")
+    _open_in_finder(report_path)
     return 0
 
 
@@ -264,6 +314,27 @@ def cmd_cache_clear(args: argparse.Namespace) -> int:
     return 0
 
 
+NO_ARGS_MESSAGE = """\
+findupe — safe duplicate finder & reviewer for macOS
+
+  1. findupe scan <folder> [<folder> ...]   find duplicates, write an HTML report
+  2. open the report, review, Export selection
+  3. findupe apply <selection>.json         move checked files to the Trash
+
+New here? Run `findupe --demo` for a zero-setup walkthrough on bundled sample photos.
+See `findupe --help` for all commands."""
+
+EPILOG = """\
+example:
+  findupe scan ~/Pictures/inbox
+  open report-images.html            # review thumbnails, Export selection
+  findupe apply findupe-selection-<id>-images.json --dry-run
+  findupe apply findupe-selection-<id>-images.json
+
+new here? `findupe --demo` runs this whole flow on bundled sample photos.
+full docs: https://github.com/jyshnkr/findupe#readme"""
+
+
 def main(argv: list[str] | None = None) -> int:
     if sys.platform != "darwin":
         print("findupe requires macOS — it relies on Finder/AppleScript for Trash "
@@ -272,6 +343,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="findupe",
         description="Safe duplicate finder: scan -> review HTML report -> apply -> (undo)",
+        epilog=EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     # default=None, not a pre-resolved path: each is resolved lazily inside the
     # function that actually needs it, only when still None, so passing an
@@ -282,7 +355,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--undo-dir", type=Path, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--scans-dir", type=Path, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--trash-dir", help="use a plain directory instead of the macOS Trash")
-    sub = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument("--demo", action="store_true",
+                        help="copy bundled sample photos to a scratch dir, scan them, and open the report")
+    parser.add_argument("--demo-dir", default=None, help=argparse.SUPPRESS)
+    sub = parser.add_subparsers(dest="command", required=False)
 
     p_scan = sub.add_parser("scan", help="find duplicates and write the review report")
     p_scan.add_argument("paths", nargs="+")
@@ -321,6 +397,11 @@ def main(argv: list[str] | None = None) -> int:
     p_history.set_defaults(func=cmd_history)
 
     args = parser.parse_args(argv)
+    if args.demo:
+        return cmd_demo(args)
+    if args.command is None:
+        print(NO_ARGS_MESSAGE)
+        return 0
     try:
         return args.func(args)
     except KeyboardInterrupt:

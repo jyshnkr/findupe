@@ -1,6 +1,8 @@
 from pathlib import Path
 
-from findupe.cli import _collect_hash_errors
+import pytest
+
+from findupe.cli import NO_ARGS_MESSAGE, _collect_hash_errors, main
 from test_grouping import mk
 
 
@@ -18,3 +20,27 @@ def test_collect_hash_errors_dedups_shared_companion():
     result = _collect_hash_errors([primary_a, primary_b], companions)
 
     assert result == [(Path("/p/IMG_1.xmp"), sidecar.hash_error)]
+
+
+def test_no_args_prints_guided_message_not_argparse_error(capsys):
+    """A bare `findupe` invocation used to hard-error via argparse's
+    required=True subparser; it must instead print a friendly 3-step
+    orientation and exit cleanly, without touching any state."""
+    rc = main([])
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert out.strip() == NO_ARGS_MESSAGE
+    assert "--demo" in out
+    assert "findupe scan" in out
+
+
+def test_help_epilog_shows_worked_example_and_demo_pointer(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["--help"])
+
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "example:" in out
+    assert "--demo" in out
+    assert "github.com/jyshnkr/findupe" in out
