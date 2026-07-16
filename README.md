@@ -1,5 +1,10 @@
 # findupe
 
+[![PyPI version](https://img.shields.io/pypi/v/findupe.svg)](https://pypi.org/project/findupe/)
+[![Python versions](https://img.shields.io/pypi/pyversions/findupe.svg)](https://pypi.org/project/findupe/)
+[![License: MIT](https://img.shields.io/pypi/l/findupe.svg)](https://github.com/jyshnkr/findupe/blob/main/LICENSE)
+[![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey.svg)](https://github.com/jyshnkr/findupe#install)
+
 Safe duplicate finder & reviewer for macOS. Finds **exact duplicates** (any file type,
 zero false positives) and **same-photo-different-format duplicates** (HEIC / JPEG / RAW,
 re-encodes, resized exports), then lets *you* review everything visually in an HTML
@@ -17,18 +22,18 @@ since perceptual matching never applies to non-images). Review and apply each
 independently.
 
 ```
-1. uv run findupe scan ~/Pictures/inbox "/Volumes/Extreme SSD/photos"
+1. findupe scan ~/Pictures/inbox "/Volumes/Extreme SSD/photos"
 2. open report-images.html   # photo/image duplicates — thumbnails, adjust checkboxes
    open report-other.html    # everything else — plain checkbox + path + size rows
 3.                           # click "Export selection" on each ->
                               #   findupe-selection-<id>-images.json
                               #   findupe-selection-<id>-other.json
-4. uv run findupe apply findupe-selection-<id>-images.json --dry-run   # preview
-   uv run findupe apply findupe-selection-<id>-other.json  --dry-run   # preview
-5. uv run findupe apply findupe-selection-<id>-images.json            # typed confirmation
-   uv run findupe apply findupe-selection-<id>-other.json             # typed confirmation
-6. uv run findupe undo                                             # list restore points
-   uv run findupe undo <manifest>                                  # put everything back
+4. findupe apply findupe-selection-<id>-images.json --dry-run   # preview
+   findupe apply findupe-selection-<id>-other.json  --dry-run   # preview
+5. findupe apply findupe-selection-<id>-images.json            # typed confirmation
+   findupe apply findupe-selection-<id>-other.json             # typed confirmation
+6. findupe undo                                             # list restore points
+   findupe undo <manifest>                                  # put everything back
 ```
 
 ## How it decides two files are "the same"
@@ -109,7 +114,7 @@ Requires macOS + [uv](https://docs.astral.sh/uv/). Python 3.11+ and all dependen
 ```sh
 uv sync
 uv run pytest          # 145 tests
-uv run findupe --help
+uv run findupe --help  # dev invocation — installed users just run `findupe --help`
 ```
 
 First `apply` may trigger a one-time macOS permission prompt ("Terminal wants to control
