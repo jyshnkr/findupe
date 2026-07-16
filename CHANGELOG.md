@@ -6,6 +6,25 @@ automatically by [Commitizen](https://commitizen-tools.github.io/commitizen/)
 from [Conventional Commits](https://www.conventionalcommits.org/) on every
 qualifying push to `main` — the heading style below matches what it emits.
 
+## v0.4.0 (2026-07-16)
+
+### BREAKING CHANGE
+
+- the CLI command changes from `dupefinder` to `findupe`,
+and the on-disk data directory moves from `~/.dupefinder/` to
+`~/.findupe/` (auto-migrated in place on first run). Any scripts,
+aliases, or cron jobs invoking `dupefinder` directly, or reading
+`~/.dupefinder/` paths directly instead of through the CLI, need updating.
+
+### Feat
+
+- PyPI-publish CI (OIDC), and APFS clone detection
+- rename project dupefinder -> findupe, honest space labels, PyPI-ready metadata
+
+### Fix
+
+- address PR review findings (Codex + CodeRabbit)
+
 ## v0.3.0 (2026-07-13)
 
 ### Feat
