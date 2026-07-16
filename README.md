@@ -5,14 +5,56 @@
 [![License: MIT](https://img.shields.io/pypi/l/findupe.svg)](https://github.com/jyshnkr/findupe/blob/main/LICENSE)
 [![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey.svg)](https://github.com/jyshnkr/findupe#install)
 
-Safe duplicate finder & reviewer for macOS. Finds **exact duplicates** (any file type,
-zero false positives) and **same-photo-different-format duplicates** (HEIC / JPEG / RAW,
-re-encodes, resized exports), then lets *you* review everything visually in an HTML
-report before anything moves — to the real macOS **Trash**, never deleted outright.
+**See your duplicate photos side by side, pick what goes, and nothing disappears
+without your OK.**
+
+findupe finds **exact duplicates** (any file type, zero false positives) and
+**same-photo-different-format duplicates** (HEIC / JPEG / RAW, re-encodes, resized
+exports) on your Mac, then lets *you* review everything visually in an HTML report
+before anything moves — to the real macOS **Trash**, never deleted outright.
 
 Built for photographers: keeping `X.CR3` + `X.jpg` side by side is intentional and is
 **never** flagged. Only surplus copies *within* a format (`X copy.jpg`, `X_2.jpg`,
 a re-imported CR3) become deletion candidates.
+
+![findupe's HTML report showing exact, strong-visual, and cross-format duplicate groups with thumbnails](https://raw.githubusercontent.com/jyshnkr/findupe/main/docs/assets/hero-report.png)
+
+## Quickstart
+
+```sh
+pipx install findupe
+findupe --demo     # scans a small bundled sample and opens the report — no setup needed
+```
+
+`--demo` gives you a real report to click through immediately. When you're ready to
+point it at your own photos, the flow is the same one shown below:
+
+![Terminal recording of scan, review, export, apply --dry-run, apply, and undo](https://raw.githubusercontent.com/jyshnkr/findupe/main/docs/assets/terminal-demo.gif)
+
+1. `findupe scan ~/Pictures/inbox "/Volumes/Extreme SSD/photos"` — writes an HTML report.
+2. Open the report, check the boxes you agree with (sensible ones are pre-checked),
+   click **Export selection**.
+3. `findupe apply <selection>.json --dry-run` to preview, then without `--dry-run` to
+   move the checked files to the Trash (typed confirmation required).
+4. `findupe undo` any time — restores from the Trash by content, not by guessing names.
+
+Nothing is deleted outright: checked files go to the real Trash (recoverable, "Put
+Back" works), and the last copy of anything always survives — enforced independently
+of what the report UI shows you.
+
+## Install
+
+Requires macOS.
+
+```sh
+pipx install findupe
+# or
+uv tool install findupe
+```
+
+Then `findupe --help`. Running on a non-macOS platform refuses immediately with a
+clear error — the Trash integration (Finder/AppleScript) and clone-detection notes
+are macOS/APFS-specific.
 
 ## Workflow
 
@@ -36,7 +78,10 @@ independently.
    findupe undo <manifest>                                  # put everything back
 ```
 
-## How it decides two files are "the same"
+## How it works
+
+<details open>
+<summary><strong>How it decides two files are "the same"</strong></summary>
 
 | Tier | Test | Shown as |
 |---|---|---|
@@ -61,7 +106,10 @@ And "surplus" is computed only within *directly-matched* same-format clusters �
 that merely shares a family through a chain of cross-format links renders as an
 informational "sibling", never as a deletion candidate.
 
-## Safety model
+</details>
+
+<details open>
+<summary><strong>Safety model</strong></summary>
 
 - **`scan` has no delete authority.** Deletion happens only through `apply`, which takes
   the selection file you exported from the report after human review.
@@ -92,56 +140,14 @@ informational "sibling", never as a deletion candidate.
   clone-of-another-candidate) — an undetected clone still reclaims no space when
   trashed, same as before this existed (the report footer explains this too).
 
-## Install
-
-Requires macOS.
-
-```sh
-pipx install findupe
-# or
-uv tool install findupe
-```
-
-Then `findupe --help`. Running on a non-macOS platform refuses immediately with a
-clear error — the Trash integration (Finder/AppleScript) and clone-detection notes
-are macOS/APFS-specific.
-
-## Dev setup
-
-Requires macOS + [uv](https://docs.astral.sh/uv/). Python 3.11+ and all dependencies
-(Pillow, pillow-heif, imagehash, rawpy, pybktree) are resolved automatically.
-
-```sh
-uv sync
-uv run pytest          # 145 tests
-uv run findupe --help  # dev invocation — installed users just run `findupe --help`
-```
-
-First `apply` may trigger a one-time macOS permission prompt ("Terminal wants to control
-Finder") — that's the Trash integration. If you deny it, apply aborts safely.
-
-All state lives under `~/.findupe/`: the hash cache (`index.db`, re-scans only hash
-new/changed files), scan history (`scans/`), and undo manifests (`undo/`).
-`findupe cache clear` resets the hash cache only. If you have an existing
-`~/.dupefinder/` from before the `findupe` rename, it's moved into place
-automatically, once, the first time you run any command that doesn't override
-`--db`/`--undo-dir`/`--scans-dir`.
-
-## Commit conventions & releases
-
-Commits to `main` follow [Conventional Commits](https://www.conventionalcommits.org/):
-`feat:` for user-facing additions, `fix:` for bug fixes, `chore:`/`docs:`/`test:`
-for everything with no release impact. A qualifying push is picked up automatically by
-[Commitizen](https://commitizen-tools.github.io/commitizen/) — it computes the next
-[semantic version](https://semver.org/) (`feat` → minor, `fix`/`perf`/`refactor` → patch,
-`feat!`/`BREAKING CHANGE` → major), updates `CHANGELOG.md`, tags the release, and a GitHub
-Action turns that tag into a [GitHub Release](https://github.com/jyshnkr/findupe/releases)
-with no manual step. See `.github/workflows/release.yml`.
+</details>
 
 ## Deliberately out of scope (v1)
 
 Scanning inside Photos/Lightroom libraries · OCR screenshot discrimination · config
-file · GUI · scheduling. (APFS clone detection shipped — see Safety model above.) See
-`docs/superpowers/specs/2026-07-09-dupefinder-design.md` for the full original design +
-rationale (written before the project was renamed from `dupefinder` to `findupe`, and
-before clone detection existed).
+file · GUI · scheduling. (APFS clone detection shipped — see "How it works" above.)
+
+## Contributing
+
+Commit conventions, the release pipeline, and dev setup live in
+[CONTRIBUTING.md](CONTRIBUTING.md).
