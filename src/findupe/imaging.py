@@ -38,6 +38,8 @@ _EXIF_FNUMBER = 0x829D
 _EXIF_ISO = 0x8827
 _EXIF_FOCAL = 0x920A
 _EXIF_IFD = 0x8769
+_EXIF_MAKE = 0x010F
+_EXIF_MODEL = 0x0110
 
 
 def hamming(a: int, b: int) -> int:
@@ -99,6 +101,17 @@ def capture_key(img: Image.Image) -> tuple[str | None, str | None]:
         return None, None
 
 
+def _has_camera_exif(img: Image.Image) -> bool:
+    """Real photos carry a camera Make/Model tag; screenshots and most
+    downloaded graphics don't — the strongest single signal that an image
+    is NOT a screenshot."""
+    try:
+        exif = img.getexif()
+        return bool(exif.get(_EXIF_MAKE) or exif.get(_EXIF_MODEL))
+    except Exception:
+        return False
+
+
 def _perceptual_worker(path_str: str) -> dict:
     """Runs in a worker process; returns plain picklable values only."""
     path = Path(path_str)
@@ -115,6 +128,7 @@ def _perceptual_worker(path_str: str) -> dict:
             "height": img.height,
             "capture_key": key,
             "capture_subsec": subsec,
+            "has_camera_exif": _has_camera_exif(img),
         }
     except Exception as e:  # decode failures are per-file findings, never fatal
         return {"path": path_str, "error": f"{type(e).__name__}: {e}"}
@@ -136,6 +150,7 @@ def compute_perceptual(
             rec.width, rec.height = cached.width, cached.height
             rec.capture_key = cached.capture_key
             rec.capture_subsec = cached.capture_subsec
+            rec.has_camera_exif = cached.has_camera_exif
         else:
             todo.append(rec)
 
@@ -156,6 +171,7 @@ def compute_perceptual(
         rec.width, rec.height = res["width"], res["height"]
         rec.capture_key = res["capture_key"]
         rec.capture_subsec = res["capture_subsec"]
+        rec.has_camera_exif = res["has_camera_exif"]
         done.append(rec)
 
     if cache is not None and done:

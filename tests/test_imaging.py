@@ -106,3 +106,41 @@ def test_real_cr3_preview_and_capture_key():
     from findupe.imaging import capture_key
     key, _subsec = capture_key(img)
     assert key  # Canon embeds shot EXIF in the preview (LibRaw-rewritten header)
+
+
+def test_has_camera_exif_with_make_tag(tmp_path):
+    """JPEG with Make EXIF tag (0x010F) → has_camera_exif is True."""
+    img = gradient_image()
+    exif = Image.Exif()
+    exif[0x010F] = "Canon"  # Make tag
+    save(img, tmp_path / "with_make.jpg", "JPEG", exif=exif)
+    recs = perceptual_records(tmp_path)
+    assert recs["with_make.jpg"].has_camera_exif is True
+
+
+def test_has_camera_exif_with_model_tag(tmp_path):
+    """JPEG with Model EXIF tag (0x0110) → has_camera_exif is True."""
+    img = gradient_image()
+    exif = Image.Exif()
+    exif[0x0110] = "EOS R6 Mark II"  # Model tag
+    save(img, tmp_path / "with_model.jpg", "JPEG", exif=exif)
+    recs = perceptual_records(tmp_path)
+    assert recs["with_model.jpg"].has_camera_exif is True
+
+
+def test_no_camera_exif_in_png(tmp_path):
+    """Plain PNG with no EXIF → has_camera_exif is False."""
+    img = gradient_image()
+    save(img, tmp_path / "plain.png", "PNG")
+    recs = perceptual_records(tmp_path)
+    assert recs["plain.png"].has_camera_exif is False
+
+
+def test_no_camera_exif_with_exif_but_no_make_model(tmp_path):
+    """JPEG with EXIF but no Make/Model → has_camera_exif is False."""
+    img = gradient_image()
+    exif = Image.Exif()
+    exif[274] = 1  # Orientation tag, not Make/Model
+    save(img, tmp_path / "no_make_model.jpg", "JPEG", exif=exif)
+    recs = perceptual_records(tmp_path)
+    assert recs["no_make_model.jpg"].has_camera_exif is False
