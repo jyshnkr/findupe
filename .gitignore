@@ -9,3 +9,7 @@ dist/
 # generated scan output — never committed
 report*.html
 findupe-selection-*.json
+dupefinder-selection-*.json
+
+# subagent-driven-development scratch (task briefs, review packages, ledger)
+.superpowers/
