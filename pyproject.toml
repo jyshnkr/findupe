@@ -43,6 +43,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/findupe"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"examples" = "findupe/examples"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
