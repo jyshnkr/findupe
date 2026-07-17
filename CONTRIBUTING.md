@@ -37,6 +37,5 @@ with no manual step. See `.github/workflows/release.yml`.
 
 ## Design background
 
-`docs/superpowers/specs/2026-07-09-dupefinder-design.md` has the full original design +
-rationale (written before the project was renamed from `dupefinder` to `findupe`, and
-before clone detection existed).
+[docs/architecture.md](docs/architecture.md) has the matching tiers and safety-model
+internals — start there before touching `grouping.py`, `imaging.py`, or `trash.py`.
