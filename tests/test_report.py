@@ -281,3 +281,44 @@ def test_non_image_row_shows_format_badge(tmp_path):
     families, possible = build_families([pdf_a, pdf_b], {"aa11": [pdf_a, pdf_b]})
     text, _ = render(families, possible, tmp_path)
     assert 'class="noimg fileicon"' in text and "PDF" in text
+
+
+def test_ocr_text_with_confidence_renders(tmp_path):
+    a = mk("/p/doc.pdf", exact_hash="ocr1")
+    b = mk("/p/backup/doc.pdf", exact_hash="ocr1")
+    a.ocr_text = "Hello world\nwith special chars: <>&\""
+    a.ocr_confidence = 0.95
+    families, possible = build_families([a, b], {"ocr1": [a, b]})
+    text, _ = render(families, possible, tmp_path)
+    # Check that the OCR text appears escaped in the HTML
+    assert "Hello world" in text
+    assert "with special chars: &lt;&gt;&amp;&quot;" in text
+    # Check that the confidence word appears
+    assert "confidence" in text
+    # Check that 95% confidence renders correctly
+    assert "95%" in text
+    # Check that the details element is present
+    assert '<details class="ocr">' in text
+    assert "<pre>" in text
+
+
+def test_ocr_text_without_confidence_renders_question_mark(tmp_path):
+    a = mk("/p/doc.pdf", exact_hash="ocr2")
+    b = mk("/p/backup/doc.pdf", exact_hash="ocr2")
+    a.ocr_text = "Some OCR text"
+    a.ocr_confidence = None
+    families, possible = build_families([a, b], {"ocr2": [a, b]})
+    text, _ = render(families, possible, tmp_path)
+    assert "Some OCR text" in text
+    assert "confidence" in text
+    assert "?" in text  # question mark when confidence is None
+    assert '<details class="ocr">' in text
+
+
+def test_no_ocr_text_renders_no_details_block(tmp_path):
+    a = mk("/p/doc.pdf", exact_hash="noocr")
+    b = mk("/p/backup/doc.pdf", exact_hash="noocr")
+    families, possible = build_families([a, b], {"noocr": [a, b]})
+    text, _ = render(families, possible, tmp_path)
+    # Neither record has ocr_text set
+    assert '<details class="ocr">' not in text
