@@ -134,3 +134,49 @@ def test_interrupted_scan_resumes_from_cache(tree, tmp_path_factory):
         assert cache.hits == 2 and cache.misses == 1
         (members,) = groups.values()
         assert len(members) == 3
+
+
+def test_ocr_fields_round_trip(tree, tmp_path_factory):
+    """OCR fields (has_camera_exif, ocr_text, ocr_confidence) persist across cache round-trip."""
+    root = tree({"a.jpg": "image-data"})
+    db = tmp_path_factory.mktemp("db") / "index.db"
+    with Cache(db) as cache:
+        (rec,) = scan(root)
+        rec.has_camera_exif = True
+        rec.ocr_text = "hello world"
+        rec.ocr_confidence = 0.87
+        cache.store([rec])
+    with Cache(db) as cache:
+        (rec2,) = scan(root)
+        cached = cache.lookup(rec2)
+        assert cached is not None
+        assert cached.has_camera_exif is True
+        assert cached.ocr_text == "hello world"
+        assert cached.ocr_confidence == 0.87
+
+
+def test_ocr_fields_coalesce_merge(tree, tmp_path_factory):
+    """Partial writes of OCR fields don't clobber earlier values via COALESCE merge."""
+    root = tree({"a.jpg": "image-v1"})
+    db = tmp_path_factory.mktemp("db") / "index.db"
+    with Cache(db) as cache:
+        (rec,) = scan(root)
+        rec.exact_hash = "hash1"
+        # Simulate exact pass: only exact_hash computed, ocr fields None
+        rec.ocr_text = None
+        rec.ocr_confidence = None
+        cache.store([rec])
+    with Cache(db) as cache:
+        (rec2,) = scan(root)
+        # Simulate OCR/perceptual pass: ocr fields now computed, exact_hash unknown (None)
+        rec2.exact_hash = None
+        rec2.ocr_text = "found text"
+        rec2.ocr_confidence = 0.95
+        cache.store([rec2])
+        # Lookup should have BOTH the original exact_hash AND the new ocr_text
+        # (COALESCE merges partial writes for the same file version)
+        cached = cache.lookup(rec2)
+        assert cached is not None
+        assert cached.exact_hash == "hash1"
+        assert cached.ocr_text == "found text"
+        assert cached.ocr_confidence == 0.95
