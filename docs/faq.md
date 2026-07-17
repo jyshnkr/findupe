@@ -55,9 +55,11 @@ yourself, but findupe doesn't manage a schedule for you.
 
 ### Does it use OCR to catch duplicate screenshots?
 
-No. Matching is purely perceptual-hash based (pHash/dHash on pixel content), not
-content-aware OCR. Two screenshots of different text that happen to look visually
-similar wouldn't be treated any differently from any other image pair.
+Yes, but only as a safety net. For screenshot pairs that pHash already marked as strong
+matches, macOS Vision OCR reads on-screen text. If the text differs significantly,
+findupe demotes the pair to review-only rather than suggesting it as a duplicate. See
+[Screenshot text discrimination](architecture.md#screenshot-text-discrimination-macos-vision-ocr)
+for the full mechanism.
 
 ### Is there a config file?
 

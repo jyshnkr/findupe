@@ -30,6 +30,24 @@ And "surplus" is computed only within *directly-matched* same-format clusters �
 that merely shares a family through a chain of cross-format links renders as an
 informational "sibling", never as a deletion candidate.
 
+### Screenshot text discrimination (macOS Vision OCR)
+
+When pHash and dHash both indicate a strong match (≤ 2 each) and both files are
+screenshots — PNG format, no camera EXIF, dimensions ≥ 200px — macOS Vision's
+`VNRecognizeTextRequest` reads on-screen text. Token-set Jaccard similarity determines
+the outcome:
+
+- **Confident, low similarity (≤ 0.25)**: the pair is broken entirely, removed from
+  results.
+- **Ambiguous or sparse text (0.25–0.6 similarity)**: the pair is demoted to review-only
+  tier and flagged `text-differs` — a signal that OCR raised a doubt.
+- **Confident, high similarity (≥ 0.6)**: the pair stays strong — OCR confirms the
+  visual match.
+
+This mechanism can only demote, never promote — a pair rejected by OCR text comparison
+will never move to a higher tier. It's macOS-only (Vision framework; pyobjc required)
+and safely no-ops on other platforms — the rest of findupe continues unchanged.
+
 ## Safety model
 
 - **`scan` has no delete authority.** Deletion happens only through `apply`, which takes
