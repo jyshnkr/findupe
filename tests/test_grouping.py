@@ -276,3 +276,19 @@ def test_visual_only_cluster_member_never_probed_for_clone_status(tmp_path):
     (fam,) = families
     (_cluster,) = clusters_of(fam, "jpeg")
     assert sibling.is_clone is False
+
+
+def test_ocr_fields_defaults_and_setters():
+    """Verify new OCR fields exist with correct defaults and can be set/read."""
+    rec = mk("/p/test.jpg")
+    # Check defaults
+    assert rec.has_camera_exif is False
+    assert rec.ocr_text is None
+    assert rec.ocr_confidence is None
+    # Check setters
+    rec.has_camera_exif = True
+    rec.ocr_text = "Sample text"
+    rec.ocr_confidence = 0.95
+    assert rec.has_camera_exif is True
+    assert rec.ocr_text == "Sample text"
+    assert rec.ocr_confidence == 0.95
