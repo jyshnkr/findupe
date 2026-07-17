@@ -6,6 +6,12 @@ automatically by [Commitizen](https://commitizen-tools.github.io/commitizen/)
 from [Conventional Commits](https://www.conventionalcommits.org/) on every
 qualifying push to `main` — the heading style below matches what it emits.
 
+## v0.5.0 (2026-07-17)
+
+### Feat
+
+- add --demo, friendlier no-args message, and --help epilog
+
 ## v0.4.0 (2026-07-16)
 
 ### BREAKING CHANGE
