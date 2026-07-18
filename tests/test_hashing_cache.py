@@ -155,6 +155,27 @@ def test_ocr_fields_round_trip(tree, tmp_path_factory):
         assert cached.ocr_confidence == 0.87
 
 
+def test_has_camera_exif_survives_exact_pass_coalesce_merge(tree, tmp_path_factory):
+    """A cached has_camera_exif from an earlier perceptual pass must survive a
+    later exact-pass store that leaves the field at its uncomputed default."""
+    root = tree({"a.jpg": "image-data"})
+    db = tmp_path_factory.mktemp("db") / "index.db"
+    with Cache(db) as cache:
+        (rec,) = scan(root)
+        # Simulate perceptual pass: has_camera_exif computed, exact_hash unknown
+        rec.has_camera_exif = True
+        cache.store([rec])
+    with Cache(db) as cache:
+        (rec2,) = scan(root)
+        # Simulate a later scan's exact pass: only exact_hash computed,
+        # has_camera_exif left at its uncomputed default
+        rec2.exact_hash = "hash1"
+        cache.store([rec2])
+        cached = cache.lookup(rec2)
+        assert cached is not None
+        assert cached.has_camera_exif is True
+
+
 def test_ocr_fields_coalesce_merge(tree, tmp_path_factory):
     """Partial writes of OCR fields don't clobber earlier values via COALESCE merge."""
     root = tree({"a.jpg": "image-v1"})

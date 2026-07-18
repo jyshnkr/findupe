@@ -282,7 +282,7 @@ def test_ocr_fields_defaults_and_setters():
     """Verify new OCR fields exist with correct defaults and can be set/read."""
     rec = mk("/p/test.jpg")
     # Check defaults
-    assert rec.has_camera_exif is False
+    assert rec.has_camera_exif is None
     assert rec.ocr_text is None
     assert rec.ocr_confidence is None
     # Check setters

@@ -63,7 +63,7 @@ class FileRecord:
     height: int | None = None
     capture_key: str | None = None      # DateTimeOriginal + exposure params (1s granularity)
     capture_subsec: str | None = None   # SubSecTimeOriginal: distinguishes burst frames
-    has_camera_exif: bool = False       # EXIF Make/Model present — real photos have it, screenshots don't
+    has_camera_exif: bool | None = None # EXIF Make/Model present; None = uncomputed (NULL so COALESCE preserves the cache)
     ocr_text: str | None = None         # Vision-recognized text, cached across scans
     ocr_confidence: float | None = None # mean per-word confidence from the OCR pass
     hash_error: str | None = None       # unreadable/undecodable — reported, never fatal

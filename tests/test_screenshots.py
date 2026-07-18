@@ -25,7 +25,7 @@ def mk(
 def test_png_no_exif_big_enough_is_screenshot():
     """PNG, no camera EXIF, 800×600 → True."""
     rec = mk("/test/screenshot.png", width=800, height=600)
-    assert rec.has_camera_exif is False  # verify default
+    assert rec.has_camera_exif is None  # verify default
     assert is_screenshot(rec) is True
 
 
@@ -39,19 +39,19 @@ def test_png_with_camera_exif_is_not_screenshot():
 def test_png_too_small_is_not_screenshot():
     """PNG, no camera EXIF, 50×50 → False (too small — icon/emoji)."""
     rec = mk("/test/icon.png", width=50, height=50)
-    assert rec.has_camera_exif is False
+    assert rec.has_camera_exif is None
     assert is_screenshot(rec) is False
 
 
 def test_jpeg_no_exif_big_enough_is_not_screenshot():
     """JPEG, no camera EXIF, 800×600 → False (wrong format)."""
     rec = mk("/test/image.jpg", width=800, height=600)
-    assert rec.has_camera_exif is False
+    assert rec.has_camera_exif is None
     assert is_screenshot(rec) is False
 
 
 def test_png_missing_dimensions_is_not_screenshot():
     """PNG, no camera EXIF, width or height None → False."""
     rec = mk("/test/screenshot.png", width=800, height=None)
-    assert rec.has_camera_exif is False
+    assert rec.has_camera_exif is None
     assert is_screenshot(rec) is False
