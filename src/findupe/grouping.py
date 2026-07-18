@@ -263,8 +263,7 @@ def build_families(
         # Check if any pair in text_differs_pairs has both indices in this family
         flags = ["review-only"]
         for pair in text_differs_pairs:
-            pair_indices = set(pair)
-            if pair_indices.issubset(member_ids):
+            if pair.issubset(member_ids):
                 flags.append("text-differs")
                 break
         fam = Family(

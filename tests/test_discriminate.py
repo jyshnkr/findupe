@@ -10,12 +10,12 @@ from findupe.ocr import OcrResult
 
 class FakeOcrBackend:
     """Fake OCR backend for testing. Tracks calls and returns configurable results."""
-    def __init__(self, texts: dict[str, str], confidence: float = 0.9):
+    def __init__(self, texts: dict[str, str], confidence: float = 0.9) -> None:
         self.texts = texts  # {path_str: text}
         self.confidence = confidence
         self.calls: list[str] = []
 
-    def recognize_text(self, path):
+    def recognize_text(self, path: Path) -> OcrResult:
         self.calls.append(str(path))
         text = self.texts.get(str(path), "")
         return OcrResult(text, self.confidence, len(text.split()))
@@ -208,4 +208,5 @@ def test_default_behavior_unchanged():
     # Call with NO ocr_backend or is_screenshot args (the original signature)
     families, _ = build_families([a, b], {})
 
-    assert len(families) == 1 and families[0].surplus_count == 1
+    assert len(families) == 1
+    assert families[0].surplus_count == 1

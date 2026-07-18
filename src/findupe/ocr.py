@@ -42,7 +42,7 @@ class NullOcrBackend:
         return OcrResult(text="", mean_confidence=0.0, word_count=0)
 
 
-_ZERO_WIDTH = re.compile(r"[​‌‍﻿]")
+_ZERO_WIDTH = re.compile(r"[\u200b\u200c\u200d\ufeff]")
 _PUNCT = re.compile(r"[^\w\s]", re.UNICODE)
 _WS = re.compile(r"\s+")
 

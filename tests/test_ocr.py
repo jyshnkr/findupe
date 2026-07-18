@@ -66,14 +66,14 @@ class TestNormalizeText:
 
     def test_normalize_zero_width_characters(self):
         """Zero-width characters are removed (not replaced with spaces)."""
-        # The regex in ocr.py contains: r"[​‌‍﻿]"
+        # The regex in ocr.py contains: r"[\u200b\u200c\u200d\ufeff]"
         # Testing with the zero-width space (U+200B)
-        text_with_zwsp = "Hello​World"
+        text_with_zwsp = "Hello\u200bWorld"
         assert normalize_text(text_with_zwsp) == "helloworld"
 
     def test_normalize_from_brief_example(self):
-        """Example from brief: "​Hello,  World!​" → "hello world"."""
-        text = "​Hello,  World!​"
+        """Example from brief: "\u200bHello,  World!\u200b" → "hello world"."""
+        text = "\u200bHello,  World!\u200b"
         assert normalize_text(text) == "hello world"
 
     def test_normalize_preserves_word_structure(self):
