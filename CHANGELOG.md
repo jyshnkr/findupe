@@ -6,6 +6,27 @@ automatically by [Commitizen](https://commitizen-tools.github.io/commitizen/)
 from [Conventional Commits](https://www.conventionalcommits.org/) on every
 qualifying push to `main` — the heading style below matches what it emits.
 
+## v0.6.0 (2026-07-18)
+
+### Feat
+
+- show OCR text snippets in HTML report
+- wire the OCR demoter into the scan CLI
+- demote screenshot matches whose OCR text disagrees
+- add macOS Vision OCR backend with text normalization and similarity
+- add metadata-only screenshot predicate
+- persist OCR and camera-EXIF fields in the scan cache (schema v3)
+- detect camera EXIF in the perceptual pass
+- add OCR fields to FileRecord
+
+### Fix
+
+- default has_camera_exif to None so cached EXIF survives the exact-pass cache merge
+
+### Refactor
+
+- apply CodeRabbit review nits (redundant set, zero-width escapes, test annotations)
+
 ## v0.5.0 (2026-07-17)
 
 ### Feat
