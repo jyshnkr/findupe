@@ -16,7 +16,7 @@ from pathlib import Path
 from .models import FileRecord, norm_path
 from .paths import resolve_data_home
 
-_SCHEMA_VERSION = 2  # v2: volume_uuid keying + capture_subsec
+_SCHEMA_VERSION = 3  # v3: OCR fields (has_camera_exif, ocr_text, ocr_confidence)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS files (
@@ -31,6 +31,9 @@ CREATE TABLE IF NOT EXISTS files (
     height      INTEGER,
     capture_key TEXT,
     capture_subsec TEXT,
+    has_camera_exif INTEGER,
+    ocr_text        TEXT,
+    ocr_confidence  REAL,
     last_seen   TEXT NOT NULL
 );
 """
@@ -58,6 +61,9 @@ class CachedInfo:
     height: int | None
     capture_key: str | None
     capture_subsec: str | None
+    has_camera_exif: bool
+    ocr_text: str | None
+    ocr_confidence: float | None
 
 
 class Cache:
@@ -79,7 +85,8 @@ class Cache:
 
     def lookup(self, rec: FileRecord) -> CachedInfo | None:
         row = self.conn.execute(
-            "SELECT exact_hash, phash, dhash, width, height, capture_key, capture_subsec "
+            "SELECT exact_hash, phash, dhash, width, height, capture_key, capture_subsec, "
+            "has_camera_exif, ocr_text, ocr_confidence "
             "FROM files WHERE path=? AND size=? AND mtime_ns=? AND volume_uuid=?",
             (norm_path(rec.path), rec.size, rec.mtime_ns, rec.volume_uuid),
         ).fetchone()
@@ -87,10 +94,12 @@ class Cache:
             self.misses += 1
             return None
         self.hits += 1
-        exact_hash, phash, dhash, width, height, capture_key, capture_subsec = row
+        exact_hash, phash, dhash, width, height, capture_key, capture_subsec, \
+            has_camera_exif, ocr_text, ocr_confidence = row
         return CachedInfo(
             exact_hash, _to_unsigned(phash), _to_unsigned(dhash),
             width, height, capture_key, capture_subsec,
+            bool(has_camera_exif), ocr_text, ocr_confidence,
         )
 
     def store(self, records: list[FileRecord]) -> None:
@@ -100,13 +109,15 @@ class Cache:
             # SAME file version. If size/mtime changed, the old values are stale and must
             # be replaced outright — hence the CASE guard on every merged column.
             "INSERT INTO files (path, size, mtime_ns, volume_uuid, exact_hash, phash, dhash,"
-            " width, height, capture_key, capture_subsec, last_seen) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
+            " width, height, capture_key, capture_subsec, has_camera_exif, ocr_text,"
+            " ocr_confidence, last_seen) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(path) DO UPDATE SET "
             + ", ".join(
                 f"{col} = CASE WHEN files.size = excluded.size AND files.mtime_ns = excluded.mtime_ns"
                 f" THEN COALESCE(excluded.{col}, files.{col}) ELSE excluded.{col} END"
                 for col in ("exact_hash", "phash", "dhash", "width", "height",
-                            "capture_key", "capture_subsec")
+                            "capture_key", "capture_subsec", "has_camera_exif", "ocr_text",
+                            "ocr_confidence")
             )
             + ", size=excluded.size, mtime_ns=excluded.mtime_ns,"
             " volume_uuid=excluded.volume_uuid, last_seen=excluded.last_seen",
@@ -114,7 +125,8 @@ class Cache:
                 (
                     norm_path(r.path), r.size, r.mtime_ns, r.volume_uuid, r.exact_hash,
                     _to_signed(r.phash), _to_signed(r.dhash),
-                    r.width, r.height, r.capture_key, r.capture_subsec, now,
+                    r.width, r.height, r.capture_key, r.capture_subsec,
+                    r.has_camera_exif, r.ocr_text, r.ocr_confidence, now,
                 )
                 for r in records
             ],

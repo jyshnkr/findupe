@@ -37,6 +37,10 @@ A family header can also carry a flag:
 - **`low-entropy`** — one or more near-uniform images (e.g. a blank wall, a solid
   color) whose hashes are less reliable as a similarity signal. Same treatment:
   nothing pre-checked.
+- **`text-differs`** — this pair's pHash matched, but on-screen text (via macOS Vision
+  OCR) didn't agree closely enough to confirm they're the same screenshot — demoted to
+  review-only rather than suggested as a duplicate. Expand the "OCR text" details under
+  each file to see what was recognized.
 
 ## Making and exporting your selection
 

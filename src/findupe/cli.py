@@ -21,6 +21,8 @@ from .discover import discover
 from .grouping import build_families
 from .hashing import ensure_hashes, group_exact
 from .imaging import compute_perceptual
+from .ocr import NullOcrBackend, default_backend
+from .screenshots import is_screenshot
 from .dashboard import render_dashboard_html
 from .ledger import list_scans, load_scan, record_scan
 from .models import FileRecord, ScanResult
@@ -84,9 +86,14 @@ def cmd_scan(args: argparse.Namespace) -> int:
         print("perceptual pass (images)…")
         compute_perceptual(disc.records, cache=cache, workers=args.workers)
 
+        ocr_backend = NullOcrBackend() if args.no_ocr else default_backend()
         families, possible = build_families(
-            disc.records, exact, threshold_possible=args.threshold
+            disc.records, exact, threshold_possible=args.threshold,
+            ocr_backend=ocr_backend, is_screenshot=is_screenshot,
         )
+        ocr_touched = [r for r in disc.records if r.ocr_text is not None]
+        if ocr_touched:
+            cache.store(ocr_touched)
         members = [r for f in families for p in f.partitions for r in p.files]
         companions = [c for r in members for c in r.companions]
         ensure_hashes(members + companions, cache=cache)
@@ -165,6 +172,7 @@ def cmd_demo(args: argparse.Namespace) -> int:
     args.materialize = False
     args.threshold = grouping.THRESHOLD_POSSIBLE
     args.output = str(scratch / "report.html")
+    args.no_ocr = False
     args.workers = 0
     rc = cmd_scan(args)
     if rc != 0:
@@ -369,6 +377,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="max pHash distance for the review-only 'possible' tier")
     p_scan.add_argument("-o", "--output", default="report.html",
                         help="base report path; writes <name>-images.html and <name>-other.html")
+    p_scan.add_argument("--no-ocr", action="store_true",
+                        help="skip the screenshot-text demoter (default: on, macOS only)")
     p_scan.add_argument("--workers", type=int, default=4, help=argparse.SUPPRESS)
     p_scan.set_defaults(func=cmd_scan)
 

@@ -44,3 +44,26 @@ def test_help_epilog_shows_worked_example_and_demo_pointer(capsys):
     assert "example:" in out
     assert "--demo" in out
     assert "github.com/jyshnkr/findupe" in out
+
+
+def test_scan_accepts_no_ocr_flag(tmp_path):
+    """The --no-ocr flag must be accepted by the scan subparser and
+    does not crash when cmd_scan is called with it."""
+    # Create a minimal directory to scan
+    scan_dir = tmp_path / "scan"
+    scan_dir.mkdir()
+    (scan_dir / "dummy.txt").write_text("not an image")
+
+    # Test that --no-ocr flag is accepted
+    # Global args must come before the subcommand
+    rc = main([
+        "--db", str(tmp_path / "index.db"),
+        "--scans-dir", str(tmp_path / "scans"),
+        "--undo-dir", str(tmp_path / "undo"),
+        "scan", str(scan_dir),
+        "--output", str(tmp_path / "report.html"),
+        "--no-ocr",
+    ])
+
+    # Should complete successfully (0 or 1 depending on findings)
+    assert rc in (0, 1)

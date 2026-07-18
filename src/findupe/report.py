@@ -89,11 +89,18 @@ def _file_row(
         )
     else:
         control = ""  # informational rows carry no controls at all
+    ocr_html = ""
+    if rec.ocr_text:
+        conf = f"{rec.ocr_confidence:.0%}" if rec.ocr_confidence is not None else "?"
+        ocr_html = (
+            f'<details class="ocr"><summary>OCR text ({conf} confidence)</summary>'
+            f'<pre>{html.escape(rec.ocr_text)}</pre></details>'
+        )
     return (
         f'<div class="file{" iskeeper" if role == "keeper" else ""}">'
         f"{control}{img}"
         f'<div class="meta"><code>{p}</code>'
-        f"<small>{_fmt_bytes(rec.size)} {dims} {' '.join(badges)}</small></div></div>"
+        f"<small>{_fmt_bytes(rec.size)} {dims} {' '.join(badges)}</small>{ocr_html}</div></div>"
     )
 
 
@@ -168,6 +175,7 @@ body { margin: 2rem auto; max-width: 70rem; padding: 0 1rem; }
 .fileicon { font-weight: 700; letter-spacing: .05em; opacity: .6; }
 .meta code { font-size: .8rem; word-break: break-all; }
 .meta small { display: block; opacity: .75; }
+.ocr pre { font-size: .7rem; max-height: 200px; overflow-y: auto; margin: .3rem 0 0 0; }
 .badge { border-radius: 4px; padding: 0 .4rem; font-size: .7rem; font-weight: 600; }
 .badge.keep { background: #2e7d3233; color: #2e7d32; }
 .badge.cloud { background: #1565c033; color: #1565c0; }

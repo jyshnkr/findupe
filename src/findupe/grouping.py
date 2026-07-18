@@ -23,12 +23,23 @@ a partition is informational — shown, never pre-checkable.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 
 import pybktree
 
 from .clones import KeeperExtents
 from .imaging import hamming
 from .models import RAW_EXTS, Cluster, Family, FileRecord, FormatPartition
+from .ocr import (
+    MIN_CONFIDENCE,
+    MIN_WORDS,
+    OcrBackend,
+    OcrResult,
+    SIM_HIGH,
+    SIM_LOW,
+    normalize_text,
+    similarity,
+)
 
 THRESHOLD_HIGH = 2
 THRESHOLD_POSSIBLE = 8
@@ -99,10 +110,45 @@ def _low_entropy(rec: FileRecord) -> bool:
     )
 
 
-def _edge_tier(a: FileRecord, b: FileRecord) -> str | None:
+def _resolve_ocr(rec: FileRecord, ocr_backend: OcrBackend) -> OcrResult:
+    if rec.ocr_text is not None:
+        return OcrResult(rec.ocr_text, rec.ocr_confidence or 0.0,
+                          len(normalize_text(rec.ocr_text).split()))
+    result = ocr_backend.recognize_text(rec.path)
+    rec.ocr_text, rec.ocr_confidence = result.text, result.mean_confidence
+    return result
+
+
+def _screenshot_ocr_tier(a: FileRecord, b: FileRecord, ocr_backend: OcrBackend) -> tuple[str | None, bool]:
+    ra = _resolve_ocr(a, ocr_backend)
+    rb = _resolve_ocr(b, ocr_backend)
+    confident = (
+        ra.word_count >= MIN_WORDS and rb.word_count >= MIN_WORDS
+        and ra.mean_confidence >= MIN_CONFIDENCE and rb.mean_confidence >= MIN_CONFIDENCE
+    )
+    if not confident:
+        return "possible", True
+    sim = similarity(ra.text, rb.text)
+    if sim <= SIM_LOW:
+        return None, False  # confident + clearly different text: no edge at all
+    if sim >= SIM_HIGH:
+        return "strong", False  # confident + similar text: OCR confirms the dup
+    return "possible", True  # confident but ambiguous zone
+
+
+def _edge_tier(
+    a: FileRecord, b: FileRecord,
+    ocr_backend: OcrBackend | None = None,
+    is_screenshot: Callable[[FileRecord], bool] | None = None,
+) -> tuple[str | None, bool]:
+    """Returns (tier, text_differs). tier is None (no edge) | "possible" | "strong".
+    text_differs is True only when a strong edge was downgraded specifically
+    because OCR text disagreed (distinct from other possible-tier causes like
+    plain pHash distance or capture-key conflicts) — used to flag the
+    resulting possible-family with "text-differs" so a human knows WHY."""
     dp = hamming(a.phash, b.phash)
     if dp > THRESHOLD_POSSIBLE:
-        return None
+        return None, False
     dd = hamming(a.dhash, b.dhash)
     strong = dp <= THRESHOLD_HIGH and dd <= THRESHOLD_HIGH
 
@@ -123,13 +169,20 @@ def _edge_tier(a: FileRecord, b: FileRecord) -> str | None:
         elif a.capture_key and b.capture_key and a.capture_key != b.capture_key:
             strong = False
 
-    return "strong" if strong else "possible"
+    # OCR gate: only runs when strong edge is already established AND both are screenshots
+    if strong and ocr_backend is not None and is_screenshot is not None \
+            and is_screenshot(a) and is_screenshot(b):
+        return _screenshot_ocr_tier(a, b, ocr_backend)
+
+    return ("strong" if strong else "possible"), False
 
 
 def build_families(
     records: list[FileRecord],
     exact_groups: dict[str, list[FileRecord]],
     threshold_possible: int = THRESHOLD_POSSIBLE,
+    ocr_backend: OcrBackend | None = None,
+    is_screenshot: Callable[[FileRecord], bool] | None = None,
 ) -> tuple[list[Family], list[Family]]:
     """Return (families, possible_families).
 
@@ -139,6 +192,7 @@ def build_families(
     idx = {id(r): i for i, r in enumerate(records)}
     uf = _UnionFind(len(records))
     strong_pairs: set[frozenset[int]] = set()
+    text_differs_pairs: set[frozenset[int]] = set()
 
     for members in exact_groups.values():
         first = idx[id(members[0])]
@@ -170,12 +224,15 @@ def build_families(
                     else [(a, b) for a in recs for b in by_phash[other_ph]]
                 )
                 for a, b in candidates:
-                    tier = _edge_tier(a, b)
+                    tier, text_differs = _edge_tier(a, b, ocr_backend, is_screenshot)
                     if tier == "strong":
                         uf.union(idx[id(a)], idx[id(b)])
                         strong_pairs.add(frozenset((idx[id(a)], idx[id(b)])))
                     elif tier == "possible":
                         possible_pairs.append((a, b))
+                        if text_differs:
+                            text_differs_pairs.add(frozenset((idx[id(a)], idx[id(b)])))
+                    # tier == None: edge is fully broken, don't record anything
 
     components: dict[int, list[FileRecord]] = {}
     for r in records:
@@ -203,6 +260,12 @@ def build_families(
     possible_families = []
     for n, member_ids in enumerate(sorted(pcomp.values(), key=min)):
         members = [records[i] for i in sorted(member_ids)]
+        # Check if any pair in text_differs_pairs has both indices in this family
+        flags = ["review-only"]
+        for pair in text_differs_pairs:
+            if pair.issubset(member_ids):
+                flags.append("text-differs")
+                break
         fam = Family(
             family_id=f"poss-{n:05d}",
             kind="possible",
@@ -211,7 +274,7 @@ def build_families(
                 FormatPartition(format=r.format, files=[r], clusters=[])
                 for r in members
             ],
-            flags=["review-only"],
+            flags=flags,
         )
         possible_families.append(fam)
 
