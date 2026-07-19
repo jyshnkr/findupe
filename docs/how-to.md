@@ -92,3 +92,34 @@ the next scan just re-hashes everything from scratch:
 ```sh
 findupe cache clear
 ```
+
+## Configuration
+
+You can save your settings in a persistent configuration file so you don't have to specify them every time you run a scan. The default location is `~/.findupe/config.toml`, but you can override this by setting the `FINDUPE_CONFIG` environment variable.
+
+### Configuration Commands
+
+Findupe provides subcommands to manage your settings:
+
+```sh
+findupe config                 # Print current config file path and resolved settings
+findupe config init            # Initialize a new config file with the annotated template
+findupe config init --force    # Re-initialize and overwrite an existing config file
+findupe config get KEY         # Print the value of a specific setting
+findupe config set KEY VALUE   # Set a scalar setting (e.g. threshold, no_ocr)
+findupe config add-root PATH   # Add a default directory to the roots list
+findupe config add-exclude GLOB # Add a default glob pattern to the exclude list
+```
+
+To remove default roots or excludes, simply edit the configuration TOML file by hand.
+
+### Precedence and Stacking Rules
+
+When you run a scan, settings are resolved using the following order of precedence:
+1. **CLI flag/argument** (highest precedence)
+2. **Configuration file**
+3. **Built-in default** (lowest precedence)
+
+#### Special Merging Rules
+- **Roots**: Specifying paths on the CLI **replaces** your configured default roots.
+- **Excludes**: Excludes specified on the CLI are **added to** (stacked with) your configured excludes. This prevents standing excludes from being silently dropped.

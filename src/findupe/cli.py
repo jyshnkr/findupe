@@ -16,6 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import grouping
+from . import config
 from .cache import Cache
 from .discover import discover
 from .grouping import build_families
@@ -60,7 +61,20 @@ def _collect_hash_errors(
 
 
 def cmd_scan(args: argparse.Namespace) -> int:
+    if not args.paths:
+        print("findupe: no scan roots specified. Provide one or more paths to scan, e.g.:\n"
+              "  findupe scan ~/Pictures\n"
+              "Or initialize and configure default roots:\n"
+              "  findupe config init\n"
+              "  findupe config add-root ~/Pictures", file=sys.stderr)
+        return 2
+
     roots = [Path(p).expanduser().resolve() for p in args.paths]
+    if getattr(args, "config_path", None):
+        roots_str = f"{len(roots)} root" + ("s" if len(roots) != 1 else "")
+        roots_list = ", ".join(str(r) for r in roots)
+        print(f"findupe: config {args.config_path} → scanning {roots_str}: {roots_list} · excludes: {args.exclude} · threshold: {args.threshold}")
+
     bad_roots = [r for r in roots if not r.is_dir()]
     if bad_roots:
         for r in bad_roots:
@@ -322,6 +336,131 @@ def cmd_cache_clear(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_config(args: argparse.Namespace) -> int:
+    path = config.config_read_path()
+    if path:
+        print(f"config file: {path}")
+        try:
+            cfg = config.load_config()
+            for key in config.KNOWN_KEYS:
+                if key in cfg:
+                    print(f"  {key} = {cfg[key]}")
+        except Exception as e:
+            print(f"error loading config: {e}", file=sys.stderr)
+            return 2
+    else:
+        write_path = config.config_write_path()
+        print(f"config file: {write_path} (does not exist)")
+    return 0
+
+
+def cmd_config_init(args: argparse.Namespace) -> int:
+    path = config.config_write_path()
+    if path.exists() and not args.force:
+        print(f"error: config file already exists at {path}. Use --force to override.", file=sys.stderr)
+        return 2
+    try:
+        config.write_values({})
+        print(f"initialized config at {path}")
+        return 0
+    except Exception as e:
+        print(f"error initializing config: {e}", file=sys.stderr)
+        return 2
+
+
+def cmd_config_get(args: argparse.Namespace) -> int:
+    key = args.key
+    if key not in config.KNOWN_KEYS:
+        print(f"error: unknown key '{key}'", file=sys.stderr)
+        return 2
+    try:
+        cfg = config.load_raw_config()
+    except Exception as e:
+        print(f"error loading config: {e}", file=sys.stderr)
+        return 2
+    if key in cfg:
+        val = cfg[key]
+        if isinstance(val, list):
+            for item in val:
+                print(item)
+        else:
+            if isinstance(val, bool):
+                print("true" if val else "false")
+            else:
+                print(val)
+    return 0
+
+
+def cmd_config_set(args: argparse.Namespace) -> int:
+    key = args.key
+    val_str = args.value
+    if key not in config.KNOWN_KEYS:
+        print(f"error: unknown key '{key}'", file=sys.stderr)
+        return 2
+    spec = config.KNOWN_KEYS[key]
+    if spec.is_list:
+        print(f"error: key '{key}' is a list, use add-root or add-exclude", file=sys.stderr)
+        return 2
+    if spec.type is int:
+        try:
+            val = int(val_str)
+        except ValueError:
+            print(f"error: value for '{key}' must be an integer, got '{val_str}'", file=sys.stderr)
+            return 2
+    elif spec.type is bool:
+        if val_str.lower() in ("true", "yes", "1"):
+            val = True
+        elif val_str.lower() in ("false", "no", "0"):
+            val = False
+        else:
+            print(f"error: value for '{key}' must be a boolean (true/false), got '{val_str}'", file=sys.stderr)
+            return 2
+    else:
+        val = val_str
+        
+    try:
+        cfg = config.load_raw_config()
+        cfg[key] = val
+        config.write_values(cfg)
+        print(f"set {key} = {json.dumps(val)}")
+        return 0
+    except Exception as e:
+        print(f"error writing config: {e}", file=sys.stderr)
+        return 2
+
+
+def cmd_config_add_root(args: argparse.Namespace) -> int:
+    path = args.path
+    try:
+        cfg = config.load_raw_config()
+        roots = cfg.get("roots", [])
+        if path not in roots:
+            roots.append(path)
+        cfg["roots"] = roots
+        config.write_values(cfg)
+        print(f"added root: {path}")
+        return 0
+    except Exception as e:
+        print(f"error writing config: {e}", file=sys.stderr)
+        return 2
+
+
+def cmd_config_add_exclude(args: argparse.Namespace) -> int:
+    glob = args.glob
+    try:
+        cfg = config.load_raw_config()
+        exclude = cfg.get("exclude", [])
+        if glob not in exclude:
+            exclude.append(glob)
+        cfg["exclude"] = exclude
+        config.write_values(cfg)
+        print(f"added exclude: {glob}")
+        return 0
+    except Exception as e:
+        print(f"error writing config: {e}", file=sys.stderr)
+        return 2
+
+
 NO_ARGS_MESSAGE = """\
 findupe — safe duplicate finder & reviewer for macOS
 
@@ -369,16 +508,24 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=False)
 
     p_scan = sub.add_parser("scan", help="find duplicates and write the review report")
-    p_scan.add_argument("paths", nargs="+")
+    p_scan.add_argument("paths", nargs="*")
     p_scan.add_argument("--exclude", action="append", default=[], metavar="GLOB")
-    p_scan.add_argument("--materialize", action="store_true",
-                        help="download iCloud stubs instead of skipping them")
-    p_scan.add_argument("--threshold", type=int, default=grouping.THRESHOLD_POSSIBLE,
+    
+    mat_group = p_scan.add_mutually_exclusive_group()
+    mat_group.add_argument("--materialize", action="store_true",
+                           help="download iCloud stubs instead of skipping them")
+    mat_group.add_argument("--no-materialize", action="store_true", help=argparse.SUPPRESS)
+    
+    p_scan.add_argument("--threshold", type=int, default=None,
                         help="max pHash distance for the review-only 'possible' tier")
-    p_scan.add_argument("-o", "--output", default="report.html",
+    p_scan.add_argument("-o", "--output", default=None,
                         help="base report path; writes <name>-images.html and <name>-other.html")
-    p_scan.add_argument("--no-ocr", action="store_true",
-                        help="skip the screenshot-text demoter (default: on, macOS only)")
+    
+    ocr_group = p_scan.add_mutually_exclusive_group()
+    ocr_group.add_argument("--no-ocr", action="store_true",
+                           help="skip the screenshot-text demoter (default: on, macOS only)")
+    ocr_group.add_argument("--ocr", action="store_true", help=argparse.SUPPRESS)
+    
     p_scan.add_argument("--workers", type=int, default=4, help=argparse.SUPPRESS)
     p_scan.set_defaults(func=cmd_scan)
 
@@ -406,9 +553,40 @@ def main(argv: list[str] | None = None) -> int:
     p_history.add_argument("scan_id", nargs="?")
     p_history.set_defaults(func=cmd_history)
 
+    p_config = sub.add_parser("config", help="manage configuration settings")
+    p_config.set_defaults(func=cmd_config)
+    config_sub = p_config.add_subparsers(dest="config_command", required=False)
+
+    p_conf_init = config_sub.add_parser("init", help="initialize configuration file")
+    p_conf_init.add_argument("--force", action="store_true", help="overwrite existing configuration file")
+    p_conf_init.set_defaults(func=cmd_config_init)
+
+    p_conf_get = config_sub.add_parser("get", help="get a configuration setting value")
+    p_conf_get.add_argument("key", help="key to query")
+    p_conf_get.set_defaults(func=cmd_config_get)
+
+    p_conf_set = config_sub.add_parser("set", help="set a configuration setting value")
+    p_conf_set.add_argument("key", help="key to set")
+    p_conf_set.add_argument("value", help="value to set")
+    p_conf_set.set_defaults(func=cmd_config_set)
+
+    p_conf_add_root = config_sub.add_parser("add-root", help="add a scan root to default roots")
+    p_conf_add_root.add_argument("path", help="path to add")
+    p_conf_add_root.set_defaults(func=cmd_config_add_root)
+
+    p_conf_add_excl = config_sub.add_parser("add-exclude", help="add a glob pattern to default excludes")
+    p_conf_add_excl.add_argument("glob", help="glob to add")
+    p_conf_add_excl.set_defaults(func=cmd_config_add_exclude)
+
     args = parser.parse_args(argv)
     if args.demo:
         return cmd_demo(args)
+    try:
+        config.merge_into_args(args, config.load_config())
+    except config.ConfigError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+
     if args.command is None:
         print(NO_ARGS_MESSAGE)
         return 0
