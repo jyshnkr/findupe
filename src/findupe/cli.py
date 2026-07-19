@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -383,11 +384,13 @@ def cmd_config_get(args: argparse.Namespace) -> int:
         if isinstance(val, list):
             for item in val:
                 print(item)
+        elif isinstance(val, bool):
+            print("true" if val else "false")
         else:
-            if isinstance(val, bool):
-                print("true" if val else "false")
-            else:
-                print(val)
+            print(val)
+    else:
+        spec = config.KNOWN_KEYS[key]
+        print(f"# {key} is not set (default: {spec.default})", file=sys.stderr)
     return 0
 
 
@@ -430,7 +433,9 @@ def cmd_config_set(args: argparse.Namespace) -> int:
 
 
 def cmd_config_add_root(args: argparse.Namespace) -> int:
-    path = args.path
+    raw = args.path
+    expanded = os.path.expanduser(os.path.expandvars(raw))
+    path = raw if os.path.isabs(expanded) else os.path.abspath(expanded)
     try:
         cfg = config.load_raw_config()
         roots = cfg.get("roots", [])

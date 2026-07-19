@@ -114,18 +114,7 @@ def render_template(values: dict) -> str:
         "# To change a setting, uncomment the line (remove the leading '# ') and set your value.",
         ""
     ]
-    order = [
-        "roots",
-        "exclude",
-        "threshold",
-        "no_ocr",
-        "materialize",
-        "output",
-        "db",
-        "scans_dir",
-        "undo_dir",
-        "trash_dir",
-    ]
+    order = list(KNOWN_KEYS.keys())
     for key in order:
         spec = KNOWN_KEYS[key]
         lines.append(f"# {spec.help_text}")

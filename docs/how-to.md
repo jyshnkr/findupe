@@ -121,5 +121,6 @@ When you run a scan, settings are resolved using the following order of preceden
 3. **Built-in default** (lowest precedence)
 
 #### Special Merging Rules
+
 - **Roots**: Specifying paths on the CLI **replaces** your configured default roots.
 - **Excludes**: Excludes specified on the CLI are **added to** (stacked with) your configured excludes. This prevents standing excludes from being silently dropped.
