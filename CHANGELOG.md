@@ -6,6 +6,16 @@ automatically by [Commitizen](https://commitizen-tools.github.io/commitizen/)
 from [Conventional Commits](https://www.conventionalcommits.org/) on every
 qualifying push to `main` — the heading style below matches what it emits.
 
+## v0.7.0 (2026-07-19)
+
+### Feat
+
+- add persistent config file for scan roots, excludes, and tuning defaults
+
+### Fix
+
+- address PR #4 CodeRabbit review comments
+
 ## v0.6.0 (2026-07-18)
 
 ### Feat
