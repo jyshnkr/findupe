@@ -64,3 +64,19 @@ def test_demo_flag_bypasses_required_subcommand(tmp_path, monkeypatch):
     rc = main(_base(tmp_path, demo_dir))
 
     assert rc == 0
+
+
+def test_demo_ignores_populated_config(tmp_path, monkeypatch):
+    """The --demo command must completely ignore the configuration file,
+    even if one is populated with invalid data or different scan roots."""
+    monkeypatch.setattr(cli_module, "_open_in_finder", lambda p: None)
+    demo_dir = tmp_path / "demo"
+    
+    # Create an invalid config file that would normally cause ConfigError on merge
+    conf_file = tmp_path / "config.toml"
+    conf_file.write_text("invalid_key = 42\n")
+    monkeypatch.setenv("FINDUPE_CONFIG", str(conf_file))
+    
+    # Run demo - it should not raise ConfigError or crash
+    rc = main(_base(tmp_path, demo_dir))
+    assert rc == 0

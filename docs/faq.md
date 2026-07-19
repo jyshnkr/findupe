@@ -61,10 +61,9 @@ findupe demotes the pair to review-only rather than suggesting it as a duplicate
 [Screenshot text discrimination](architecture.md#screenshot-text-discrimination-macos-vision-ocr)
 for the full mechanism.
 
-### Is there a config file?
+### Can I save my settings or scan roots?
 
-No — CLI flags only. See [How-to](how-to.md) for the flags that cover excluding paths,
-scanning multiple roots, and tuning the match threshold.
+Yes. Run `findupe config init` to write a default configuration template to `~/.findupe/config.toml`. You can configure default scan roots, glob excludes, threshold values, and output directories. See the [How-to](how-to.md#configuration) guide for details on configuration commands and precedence rules.
 
 ## See also
 
